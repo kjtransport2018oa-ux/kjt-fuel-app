@@ -1,7 +1,7 @@
 {
-  "name": "ระบบจัดการเติมน้ำมัน KJ Transport",
-  "short_name": "KJT Fuel",
-  "description": "ระบบจัดการงานเติมน้ำมันสำหรับ KJ Transport 2018",
+  "name": "KJ Transport HUB",
+  "short_name": "KJT HUB",
+  "description": "ศูนย์รวมระบบปฏิบัติการ KJ Transport 2018 — เติมน้ำมัน, แผนที่/จุดเสี่ยง, รับ-คืนรถ",
   "id": "./",
   "start_url": "./index.html",
   "scope": "./",

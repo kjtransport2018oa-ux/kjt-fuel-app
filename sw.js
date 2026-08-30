@@ -3,7 +3,7 @@
 // สำคัญ: ไม่แตะ request ที่เป็น POST เลย (คำขอที่ยิงไปหา Apps Script API ทั้งหมดเป็น POST)
 // เพื่อไม่ให้ไปยุ่งกับการเชื่อมต่อฐานข้อมูลจริงโดยไม่ตั้งใจ
 
-const CACHE_NAME = 'kjt-fuel-shell-v2'; // อัปเดตเวอร์ชันแคชเพราะย้ายมาโดเมน/repo ใหม่ (kjt-fuel-app)
+const CACHE_NAME = 'kjt-hub-shell-v3'; // เปลี่ยนชื่อแอปเป็น KJ Transport HUB (v3) — บังคับล้าง cache เดิมทุกเครื่อง
 const APP_SHELL = [
   './',
   './index.html',
