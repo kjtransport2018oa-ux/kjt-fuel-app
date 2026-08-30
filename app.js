@@ -670,6 +670,13 @@ function handlePwaInstallClick_() {
     // แก้ค่านี้เป็น URL จริงหลัง deploy หน้าสแกนแล้ว
     const SCANNER_PAGE_URL = 'https://kjtransport2018oa-ux.github.io/kjt-qr-scanner/';
 
+    // ลิงก์เว็บแอประบบใบส่งมอบ/รับคืนรถ (Apps Script Web App แยกต่างหาก) — เฉพาะ Supervisor เข้าถึงได้
+    const VEHICLE_HANDOVER_URL = 'https://script.google.com/macros/s/AKfycbxeRGICTt_Ub2LioY1wtOAp_aPhbl4HotWUOhxS3CkfkfqXkA1B1q-vHlQsDjdSzbpp/exec';
+
+    function openVehicleHandoverWindow_() {
+      window.open(VEHICLE_HANDOVER_URL, '_blank');
+    }
+
     function renderAttendantScan() {
       const el = document.getElementById('mainContent');
       el.innerHTML =
@@ -1355,6 +1362,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'map\')">' +
             '<span class="dmb-icon">📍</span><span class="dmb-label">แผนที่ส่งสินค้า / จุดเสี่ยง</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="openVehicleHandoverWindow_()">' +
+            '<span class="dmb-icon">🚚</span><span class="dmb-label">ใบส่งมอบ / รับคืนรถ</span>' +
           '</button>' +
         '</div>';
     }
