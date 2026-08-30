@@ -417,9 +417,14 @@ function handlePwaInstallClick_() {
     let safetySelectedShop = null;
 
     function renderDriverSafetyMap() {
+      renderSafetyMapShared_("goDriverView('menu')");
+    }
+
+    // ใช้ร่วมกันระหว่างเมนูคนขับและเมนูหัวหน้างาน — ต่างกันแค่ปุ่ม "กลับ" ที่ต้องกลับไปคนละเมนูหลัก
+    function renderSafetyMapShared_(backOnclick) {
       const el = document.getElementById('mainContent');
       el.innerHTML =
-        '<button type="button" class="back-link" onclick="goDriverView(\'menu\')">← กลับ</button>' +
+        '<button type="button" class="back-link" onclick="' + backOnclick + '">← กลับ</button>' +
         '<div class="panel">' +
           '<div class="panel-title"><h3>แผนที่ส่งสินค้า / จุดเสี่ยง</h3></div>' +
           '<p class="panel-hint">พิมพ์ชื่อร้าน/โรงงานที่จะไปส่ง</p>' +
@@ -1312,7 +1317,7 @@ function handlePwaInstallClick_() {
     }
 
     /* ---------- Supervisor: เมนูหลัก (คีย์งานเข้าระบบ / รับน้ำมันและเช็คสถานะน้ำมัน) ---------- */
-    let supervisorView = 'menu'; // 'menu' | 'schedule' | 'fuelStock'
+    let supervisorView = 'menu'; // 'menu' | 'schedule' | 'fuelStock' | 'map'
 
     function renderSupervisorHome(targetId) {
       const target = targetId || 'mainContent';
@@ -1332,6 +1337,12 @@ function handlePwaInstallClick_() {
         renderFuelStockHome('fuelStockWrap');
         return;
       }
+      if (supervisorView === 'map') {
+        // แผนที่จุดเสี่ยงใช้ #mainContent ตรงๆ (เหมือนฝั่งคนขับ) จึงต้อง render ผ่าน mainContent เสมอ
+        // ไม่ว่า targetId ที่ส่งเข้ามาจะเป็นอะไร (กันเคส Admin เรียกผ่าน tab ที่ id ไม่ใช่ mainContent)
+        renderSafetyMapShared_("goSupervisorView('menu')");
+        return;
+      }
 
       const el = document.getElementById(target);
       el.innerHTML =
@@ -1341,6 +1352,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'fuelStock\')">' +
             '<span class="dmb-icon">⛽</span><span class="dmb-label">รับน้ำมันและเช็คสถานะน้ำมัน</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'map\')">' +
+            '<span class="dmb-icon">📍</span><span class="dmb-label">แผนที่ส่งสินค้า / จุดเสี่ยง</span>' +
           '</button>' +
         '</div>';
     }
