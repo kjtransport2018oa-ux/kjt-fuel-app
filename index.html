@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ระบบเติมน้ำมัน - KJ Transport</title>
+
+  <!-- PWA: Android / Chrome -->
+  <meta name="theme-color" content="#14213D">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="manifest.json">
+
+  <!-- PWA: iOS / Safari — iOS ไม่อ่าน manifest.json สำหรับไอคอน ต้องใช้แท็กเหล่านี้โดยตรง -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KJT Fuel">
+  <link rel="apple-touch-icon" sizes="192x192" href="icon/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="icon/Icon-512.png">
+
+  <!-- Favicon เบราว์เซอร์ทั่วไป -->
+  <link rel="icon" type="image/png" sizes="192x192" href="icon/Icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js';document.head.appendChild(s);"></script>
+</head>
+<body>
+<!-- ===================== LOGIN SCREEN ===================== -->
+  <div id="loginScreen">
+    <div class="login-card">
+      <div class="corner tl"></div>
+      <div class="corner br"></div>
+      <div class="login-brand">
+        <div class="tag">KJ Transport 2018</div>
+        <h1>ระบบจัดการเติมน้ำมัน</h1>
+        <p>เข้าสู่ระบบด้วยบัญชีของคุณ</p>
+      </div>
+      <div id="loginError" class="error-msg"></div>
+      <div class="field">
+        <label>ชื่อผู้ใช้</label>
+        <input type="text" id="loginUsername" autocomplete="username" placeholder="เช่น admin">
+      </div>
+      <div class="field">
+        <label>รหัสผ่าน</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="rememberMe" style="width:auto;margin:0;">
+        <label for="rememberMe" style="font-size:13px;margin:0;font-weight:500;color:var(--text-soft);">จดจำการเข้าสู่ระบบไว้ (30 วัน)</label>
+      </div>
+      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <div id="appScreen">
+    <div class="topbar">
+      <div class="who">
+        <h2 id="whoName">-</h2>
+        <span id="whoRole">-</span><span class="role-badge" id="whoRoleBadge">-</span>
+      </div>
+      <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
+    </div>
+    <div class="content" id="mainContent"></div>
+  </div>
+
+  <!-- ===================== USER FORM MODAL (Admin) ===================== -->
+  <div class="modal-overlay" id="userModal">
+    <div class="modal">
+      <h3 id="userModalTitle">เพิ่มผู้ใช้งานใหม่</h3>
+      <div id="userModalError" class="error-msg"></div>
+      <div class="field">
+        <label>ชื่อผู้ใช้ (Username)</label>
+        <input type="text" id="fUsername" placeholder="เช่น somchai01">
+      </div>
+      <div class="field">
+        <label>ชื่อ</label>
+        <input type="text" id="fFirstName" placeholder="เช่น สมชาย">
+      </div>
+      <div class="field">
+        <label>นามสกุล</label>
+        <input type="text" id="fLastName" placeholder="เช่น ใจดี">
+      </div>
+      <div class="field">
+        <label>รหัสผ่าน <span id="pwHint" style="font-weight:400;color:var(--text-soft);"></span></label>
+        <input type="password" id="fPassword" placeholder="อย่างน้อย 6 ตัวอักษร">
+      </div>
+      <div class="field">
+        <label>สิทธิ์การใช้งาน (Role)</label>
+        <select id="fRole">
+          <option value="Admin">Admin - ผู้ดูแลระบบ</option>
+          <option value="Supervisor">Supervisor - หัวหน้างาน</option>
+          <option value="Driver">Driver - คนขับรถ</option>
+          <option value="FuelAttendant">FuelAttendant - คนเติมน้ำมัน</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeUserModal()">ยกเลิก</button>
+        <button class="btn btn-primary" id="saveUserBtn" onclick="saveUser()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== EDIT SCHEDULE ROW MODAL (Supervisor) ===================== -->
+  <div class="modal-overlay" id="scheduleModal">
+    <div class="modal">
+      <h3>แก้ไขรายการ</h3>
+      <div id="scheduleModalError" class="error-msg"></div>
+      <div id="scheduleModalRestrictNote" class="error-msg" style="display:none;background:#FFF4DE;color:var(--amber-dark);">งานนี้เติมน้ำมันไปแล้ว แก้ไขข้อมูลหลักไม่ได้ (ป้องกันไม่ให้ไม่ตรงกับประวัติที่บันทึกไว้) แก้ได้เฉพาะหมายเหตุด้านล่าง</div>
+      <div class="field"><label>วันที่ให้น้ำมัน</label><input type="text" id="sDate" placeholder="24/8/26"></div>
+      <div class="field"><label>Fleet</label><input type="text" id="sFleet" placeholder="เช่น PTT, IRPC, HMC"></div>
+      <div class="field"><label>สถานที่ส่งสินค้า</label><input type="text" id="sLocation"></div>
+      <div class="field"><label>อำเภอ</label><input type="text" id="sDistrict"></div>
+      <div class="field"><label>จังหวัด</label><input type="text" id="sProvince"></div>
+      <div class="field"><label>จำนวนลิตร</label><input type="text" id="sLiters"></div>
+      <div class="field"><label>ทะเบียน</label><input type="text" id="sPlate"></div>
+      <div class="field"><label>ชื่อ (คนขับ)</label><input type="text" id="sDriverFirstName"></div>
+      <div class="field"><label>นามสกุล (คนขับ)</label><input type="text" id="sDriverLastName"></div>
+      <div class="field">
+        <label>สถานะ</label>
+        <select id="sStatus">
+          <option value="รอเติม">รอเติม</option>
+          <option value="เติมแล้ว">เติมแล้ว</option>
+          <option value="ไม่ได้เติม">ไม่ได้เติม</option>
+        </select>
+      </div>
+      <div class="field"><label>หมายเหตุ</label><input type="text" id="sRemark" placeholder="เช่น เหตุผลที่ไม่ได้เติม"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeScheduleModal()">ยกเลิก</button>
+        <button class="btn btn-primary" id="saveScheduleBtn" onclick="saveScheduleRow()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- ===================== PWA: ปุ่มติดตั้งหลัก + คู่มือติดตั้งแบบภาพ ===================== -->
+  <button type="button" class="pwa-fab" id="pwaInstallFab" style="display:none;" onclick="handlePwaInstallClick_()">
+    📲 ติดตั้งแอปไว้ใช้งานหน้าจอหลัก
+  </button>
+
+  <div class="modal-overlay" id="installGuideModal">
+    <div class="modal install-guide-modal">
+      <div class="ig-icon">📲</div>
+      <h2 class="ig-title">ติดตั้งแอปไว้ใช้งานง่ายๆ</h2>
+      <p class="ig-subtitle">ทำครั้งเดียว ครั้งต่อไปเปิดจากหน้าจอมือถือได้เลย ไม่ต้องเข้าเว็บใหม่ทุกครั้ง</p>
+
+      <div id="igAndroidSteps" class="ig-steps">
+        <div class="ig-step">
+          <div class="ig-step-num">1</div>
+          <div class="ig-step-text">กดปุ่ม <b>สีส้มด้านล่าง</b> ที่เขียนว่า<br>"ติดตั้งแอปไว้ใช้งานหน้าจอหลัก"</div>
+        </div>
+        <div class="ig-step">
+          <div class="ig-step-num">2</div>
+          <div class="ig-step-text">จะมีกล่องเล็กๆ เด้งขึ้นมา ให้กด <b>"ติดตั้ง" (Install)</b></div>
+        </div>
+        <div class="ig-step">
+          <div class="ig-step-num">✓</div>
+          <div class="ig-step-text">เสร็จแล้ว! จะมีไอคอนแอปขึ้นที่หน้าจอมือถือ</div>
+        </div>
+      </div>
+
+      <div id="igIosSteps" class="ig-steps" style="display:none;">
+        <div class="ig-step">
+          <div class="ig-step-num">1</div>
+          <div class="ig-step-text"><span class="ig-emoji">⬆️</span> แตะปุ่ม <b>แชร์ (Share)</b><br>รูปสี่เหลี่ยมมีลูกศรชี้ขึ้น ด้านล่างจอ Safari</div>
+        </div>
+        <div class="ig-step">
+          <div class="ig-step-num">2</div>
+          <div class="ig-step-text"><span class="ig-emoji">➕</span> เลื่อนหาแล้วแตะ<br><b>"เพิ่มไปยังหน้าจอโฮม"</b> (Add to Home Screen)</div>
+        </div>
+        <div class="ig-step">
+          <div class="ig-step-num">3</div>
+          <div class="ig-step-text"><span class="ig-emoji">✓</span> แตะ <b>"เพิ่ม" (Add)</b> ที่มุมขวาบน เสร็จแล้ว!</div>
+        </div>
+      </div>
+
+      <button type="button" class="btn-install-main" id="igInstallBtn" onclick="handlePwaInstallClick_()">
+        📲 ติดตั้งแอปไว้ใช้งานหน้าจอหลัก
+      </button>
+      <button type="button" class="ig-dismiss" onclick="dismissInstallGuide_()">ไว้ค่อยติดตั้งทีหลัง</button>
+    </div>
+  </div>
+
+  <!-- ===================== Driver: อัปเดตข้อมูลแผนที่/จุดเสี่ยง ===================== -->
+  <div class="modal-overlay" id="safetyUpdateModal">
+    <div class="modal">
+      <h3>อัปเดตข้อมูล</h3>
+      <div id="safetyUpdateError" class="error-msg"></div>
+      <div class="field"><label>ชื่อคนขับ</label><input type="text" id="safDriverName"></div>
+      <div class="field"><label>ทะเบียนรถ</label><input type="text" id="safCarId" placeholder="เช่น 71-1645"></div>
+      <div class="field">
+        <label>หัวข้อที่จะอัปเดต</label>
+        <select id="safUpdateType">
+          <option value="mainRoute">เส้นทางหลัก</option>
+          <option value="subRoute">เส้นทางสำรอง</option>
+          <option value="howToUnload">วิธีการลงสินค้า</option>
+          <option value="risk">จุดเสี่ยง</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>ข้อความ (ไม่บังคับถ้าถ่ายรูปแทน)</label>
+        <textarea id="safUpdateText" rows="3" style="width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:'Sarabun',sans-serif;font-size:15px;background:#FAFAFA;"></textarea>
+      </div>
+      <div class="field">
+        <label>ถ่ายรูปหน้างาน (ไม่บังคับถ้าพิมพ์ข้อความแทน)</label>
+        <input type="file" id="safUpdatePhoto" accept="image/*" capture="environment">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeSafetyUpdateModal_()">ยกเลิก</button>
+        <button class="btn btn-primary" id="safUpdateSaveBtn" onclick="submitSafetyUpdate_()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
