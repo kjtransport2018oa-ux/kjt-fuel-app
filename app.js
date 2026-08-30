@@ -663,7 +663,7 @@ function handlePwaInstallClick_() {
 
     // ลิงก์หน้าสแกน QR แบบสแกนสด (โฮสต์แยกนอก Apps Script เพื่อเลี่ยงข้อจำกัดกล้องของ iframe)
     // แก้ค่านี้เป็น URL จริงหลัง deploy หน้าสแกนแล้ว
-    const SCANNER_PAGE_URL = 'https://kidkaiser159.github.io/kjt-qr-scanner/';
+    const SCANNER_PAGE_URL = 'https://kjtransport2018oa-ux.github.io/kjt-qr-scanner/';
 
     function renderAttendantScan() {
       const el = document.getElementById('mainContent');
