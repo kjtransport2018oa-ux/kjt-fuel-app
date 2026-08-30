@@ -429,11 +429,15 @@ function handlePwaInstallClick_() {
           '<div class="panel-title"><h3>แผนที่ส่งสินค้า / จุดเสี่ยง</h3></div>' +
           '<p class="panel-hint">พิมพ์ชื่อร้าน/โรงงานที่จะไปส่ง</p>' +
           '<div class="field search-box" style="position:relative;">' +
-            '<input type="text" id="safSearchInput" list="safShopList" placeholder="พิมพ์ชื่อร้าน/โรงงาน..." oninput="onSafetySearchInput_()" onkeydown="if(event.key===\'Enter\')doSafetySearch_()">' +
+            '<input type="text" id="safSearchInput" list="safShopList" placeholder="กำลังโหลดรายชื่อร้าน..." oninput="onSafetySearchInput_()" onkeydown="if(event.key===\'Enter\')doSafetySearch_()" disabled>' +
             '<button type="button" class="search-clear-btn" id="safClearBtn" onclick="clearSafetySearch_()">✕</button>' +
             '<datalist id="safShopList"></datalist>' +
           '</div>' +
-          '<button class="btn btn-primary" onclick="doSafetySearch_()">ค้นหา</button>' +
+          '<button class="btn btn-primary" id="safSearchBtn" onclick="doSafetySearch_()" disabled>ค้นหา</button>' +
+          '<div class="loading-state" id="safLoadingState">' +
+            '<div class="spinner-lg"></div>' +
+            '<p>กำลังโหลดข้อมูลร้านค้า/จุดส่งสินค้า...</p>' +
+          '</div>' +
         '</div>' +
         '<div id="safetyDetailArea"></div>';
 
@@ -441,12 +445,38 @@ function handlePwaInstallClick_() {
     }
 
     function loadSafetyRoutes_() {
+      const loadingEl = document.getElementById('safLoadingState');
+      const inputEl = document.getElementById('safSearchInput');
+      const btnEl = document.getElementById('safSearchBtn');
+
+      if (loadingEl) {
+        loadingEl.innerHTML =
+          '<div class="spinner-lg"></div>' +
+          '<p>กำลังโหลดข้อมูลร้านค้า/จุดส่งสินค้า...</p>';
+      }
+      if (inputEl) { inputEl.disabled = true; inputEl.placeholder = 'กำลังโหลดรายชื่อร้าน...'; }
+      if (btnEl) btnEl.disabled = true;
+
       google.script.run
         .withSuccessHandler(function (res) {
+          if (loadingEl) loadingEl.remove();
           if (!res.success) { showToast(res.message, true); return; }
           safetyRoutesCache = res.rows;
+          if (inputEl) {
+            inputEl.disabled = false;
+            inputEl.placeholder = 'พิมพ์ชื่อร้าน/โรงงาน... (มี ' + res.rows.length + ' รายการ)';
+          }
+          if (btnEl) btnEl.disabled = false;
         })
-        .withFailureHandler(function (err) { showToast('โหลดข้อมูลไม่สำเร็จ: ' + err.message, true); })
+        .withFailureHandler(function (err) {
+          if (loadingEl) {
+            loadingEl.innerHTML =
+              '<p style="color:var(--danger);margin:0 0 12px;">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</p>' +
+              '<button type="button" class="btn btn-outline" onclick="loadSafetyRoutes_()">ลองใหม่</button>';
+          }
+          if (inputEl) inputEl.placeholder = 'โหลดข้อมูลไม่สำเร็จ — กดลองใหม่ด้านล่าง';
+          showToast('โหลดข้อมูลไม่สำเร็จ: ' + err.message, true);
+        })
         .getSafetyRoutes(sessionToken);
     }
 

@@ -534,3 +534,24 @@
       margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Loading state ขนาดใหญ่ ใช้ตอนรอโหลดข้อมูลทั้งหน้า/ทั้งส่วน (เช่น แผนที่จุดเสี่ยงตอนเปิดครั้งแรก) */
+    .loading-state {
+      text-align: center;
+      padding: 28px 16px;
+      color: var(--text-soft);
+    }
+    .loading-state .spinner-lg {
+      width: 34px; height: 34px;
+      margin: 0 auto 12px;
+      border: 3.5px solid var(--border);
+      border-top-color: var(--navy);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    .loading-state p {
+      margin: 0;
+      font-size: 13.5px;
+      animation: loadingPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes loadingPulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
