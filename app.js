@@ -1380,12 +1380,19 @@ function handlePwaInstallClick_() {
         renderSafetyMapShared_("goSupervisorView('menu')");
         return;
       }
+      if (supervisorView === 'report') {
+        renderSupervisorReportPage_();
+        return;
+      }
 
       const el = document.getElementById(target);
       el.innerHTML =
         '<div class="driver-menu">' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'schedule\')">' +
             '<span class="dmb-icon">📋</span><span class="dmb-label">คีย์งานเข้าระบบ</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'report\')">' +
+            '<span class="dmb-icon">📊</span><span class="dmb-label">รายงานข้อมูลการเติมน้ำมัน (Report &amp; Dashboard)</span>' +
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'fuelStock\')">' +
             '<span class="dmb-icon">⛽</span><span class="dmb-label">รับน้ำมันและเช็คสถานะน้ำมัน</span>' +
@@ -1402,6 +1409,185 @@ function handlePwaInstallClick_() {
     function goSupervisorView(view) {
       supervisorView = view;
       renderSupervisorHome('mainContent');
+    }
+
+    /* ---------- Supervisor: รายงานข้อมูลการเติมน้ำมัน (Report & Dashboard) ---------- */
+    const THAI_MONTHS_UI_ = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+    let lastReportParams_ = null;
+
+    function renderSupervisorReportPage_() {
+      const el = document.getElementById('mainContent');
+      const now = new Date();
+      const curYear = now.getFullYear();
+
+      let monthOptions = '';
+      for (let m = 1; m <= 12; m++) {
+        monthOptions += '<option value="' + m + '"' + (m === now.getMonth() + 1 ? ' selected' : '') + '>' + THAI_MONTHS_UI_[m] + '</option>';
+      }
+      let yearOptions = '';
+      for (let y = curYear; y >= curYear - 2; y--) {
+        yearOptions += '<option value="' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="goSupervisorView(\'menu\')">← กลับเมนูหลัก</button>' +
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>รายงานข้อมูลการเติมน้ำมัน (Report &amp; Dashboard)</h3></div>' +
+          '<p class="panel-hint">เลือกช่วงเวลาและพนักงานขับรถที่ต้องการดูรายงาน</p>' +
+          '<div class="filter-row">' +
+            '<select id="repMonth">' + monthOptions + '</select>' +
+            '<select id="repYear">' + yearOptions + '</select>' +
+            '<select id="repDriver"><option value="ALL">ทั้งหมด (ภาพรวม)</option></select>' +
+          '</div>' +
+          '<div class="filter-row" style="margin-bottom:0;">' +
+            '<button class="btn btn-primary" id="repSearchBtn" onclick="loadSupervisorReport_()" style="width:auto;">ค้นหา</button>' +
+            '<button class="btn btn-outline" id="repExportBtn" onclick="exportSupervisorReport_()" style="width:auto;display:none;">📥 Export เป็น Excel</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="reportResultArea"></div>';
+
+      loadDriverOptionsForReport_();
+    }
+
+    function loadDriverOptionsForReport_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const sel = document.getElementById('repDriver');
+          if (!sel || !res.success) return;
+          res.drivers.forEach(function (name) {
+            const opt = document.createElement('option');
+            opt.value = name; opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list คนขับไม่ขึ้น ยังใช้ "ทั้งหมด" ได้ปกติ */ })
+        .getDriverNameOptions(sessionToken);
+    }
+
+    function loadSupervisorReport_() {
+      const month = document.getElementById('repMonth').value;
+      const year = document.getElementById('repYear').value;
+      const driver = document.getElementById('repDriver').value;
+      const resultEl = document.getElementById('reportResultArea');
+      const exportBtn = document.getElementById('repExportBtn');
+      const searchBtn = document.getElementById('repSearchBtn');
+
+      exportBtn.style.display = 'none';
+      searchBtn.disabled = true;
+      resultEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังประมวลผลรายงาน...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          searchBtn.disabled = false;
+          if (!res.success) {
+            resultEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดรายงานไม่สำเร็จ') + '</div>';
+            return;
+          }
+          lastReportParams_ = { month: month, year: year, driver: driver };
+          renderReportResult_(res);
+          exportBtn.style.display = 'inline-block';
+        })
+        .withFailureHandler(function (err) {
+          searchBtn.disabled = false;
+          resultEl.innerHTML = '<div class="empty-state">โหลดรายงานไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getFuelMonthlyReport(sessionToken, year, month, driver);
+    }
+
+    function summaryCardHtml_(val, label) {
+      return '<div class="summary-card"><div class="num">' + Number(val || 0).toLocaleString('th-TH') + '</div><div class="lbl">' + label + '</div></div>';
+    }
+
+    function renderReportResult_(res) {
+      const resultEl = document.getElementById('reportResultArea');
+      let html = '';
+
+      html += '<div class="summary-cards" style="grid-template-columns:repeat(4,1fr);">' +
+        summaryCardHtml_(res.openingBalance, 'ยอดยกมาต้นเดือน (ลิตร)') +
+        summaryCardHtml_(res.totalReceived, 'รับเข้ารวม (ลิตร)') +
+        summaryCardHtml_(res.totalUsed, 'ใช้ไปรวม (ลิตร)') +
+        summaryCardHtml_(res.closingBalance, res.mode === 'all' ? 'คงเหลือปลายเดือน (ลิตร)' : 'รวมของ ' + escapeHtml(res.driverName) + ' (ลิตร)') +
+      '</div>';
+
+      html += '<div class="panel">' +
+        '<div class="panel-title"><h3>บทวิเคราะห์ประจำเดือน</h3></div>' +
+        '<p class="panel-hint">สรุปจากการคำนวณสถิติอัตโนมัติในระบบ (ไม่ใช่ผลจากโมเดล AI ภายนอก)</p>' +
+        '<div class="topic-text">' + escapeHtml(res.analysisText) + '</div>' +
+      '</div>';
+
+      if (res.mode === 'all' && res.daily) {
+        html += '<div class="panel"><div class="panel-title"><h3>สรุปยอดรายวัน (' + escapeHtml(res.monthLabel) + ')</h3></div>' +
+          '<div class="grid-scroll"><table class="grid"><thead><tr><th>วันที่</th><th>ใช้ไป (ลิตร)</th><th>รับเข้า (ลิตร)</th><th>คงเหลือ (ลิตร)</th></tr></thead><tbody>' +
+          res.daily.map(function (d) {
+            return '<tr>' +
+              '<td style="padding:9px 8px;">' + escapeHtml(d.date) + '</td>' +
+              '<td style="padding:9px 8px;">' + Number(d.used).toLocaleString('th-TH') + '</td>' +
+              '<td style="padding:9px 8px;">' + Number(d.received).toLocaleString('th-TH') + '</td>' +
+              '<td style="padding:9px 8px;font-weight:600;">' + Number(d.balance).toLocaleString('th-TH') + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody></table></div></div>';
+
+        if (res.driverBreakdown && res.driverBreakdown.length) {
+          html += '<div class="panel"><div class="panel-title"><h3>สรุปตามคนขับ (สูงสุด ' + res.driverBreakdown.length + ' อันดับ)</h3></div>' +
+            res.driverBreakdown.map(function (d) {
+              return '<div class="bulk-result-row ok"><span>' + escapeHtml(d.driverName) + '</span><span>' + Number(d.liters).toLocaleString('th-TH') + ' ลิตร</span></div>';
+            }).join('') +
+          '</div>';
+        }
+      } else {
+        html += '<div class="panel"><div class="panel-title"><h3>รายการเติมน้ำมันของ ' + escapeHtml(res.driverName) + '</h3></div>' +
+          (res.rows.length ?
+            '<div class="grid-scroll"><table class="report-table"><thead><tr><th>วันที่</th><th>Fleet</th><th>ทะเบียน</th><th>สถานที่</th><th>ลิตร</th><th>ผู้เติม</th></tr></thead><tbody>' +
+            res.rows.map(function (r) {
+              return '<tr>' +
+                '<td>' + escapeHtml(r.fillDate) + '</td>' +
+                '<td>' + escapeHtml(r.fleet) + '</td>' +
+                '<td>' + escapeHtml(r.plateNumber) + '</td>' +
+                '<td>' + escapeHtml(r.location) + '</td>' +
+                '<td>' + Number(r.litersActual).toLocaleString('th-TH') + '</td>' +
+                '<td>' + escapeHtml(r.attendantName) + '</td>' +
+              '</tr>';
+            }).join('') + '</tbody></table></div>'
+            : '<div class="empty-state">ไม่พบรายการเติมน้ำมันในช่วงที่เลือก</div>') +
+        '</div>';
+      }
+
+      resultEl.innerHTML = html;
+    }
+
+    function exportSupervisorReport_() {
+      if (!lastReportParams_) return;
+      const btn = document.getElementById('repExportBtn');
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="border-color:rgba(16,27,51,.35);border-top-color:var(--navy);"></span>กำลังสร้างไฟล์...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.innerHTML = original;
+          if (!res.success) { showToast(res.message || 'Export ไม่สำเร็จ', true); return; }
+          downloadBase64File_(res.base64, res.fileName);
+          showToast('ดาวน์โหลดไฟล์สำเร็จ');
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.innerHTML = original;
+          showToast('Export ไม่สำเร็จ: ' + err.message, true);
+        })
+        .exportFuelMonthlyReportExcel(sessionToken, lastReportParams_.year, lastReportParams_.month, lastReportParams_.driver);
+    }
+
+    function downloadBase64File_(base64, fileName) {
+      const byteChars = atob(base64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
     }
 
     /* ---------- Supervisor: รับน้ำมันเข้าถัง + สถานะน้ำมันแบบเรียลไทม์ ---------- */
