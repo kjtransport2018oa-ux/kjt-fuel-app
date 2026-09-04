@@ -61,9 +61,36 @@
         <h2 id="whoName">-</h2>
         <span id="whoRole">-</span><span class="role-badge" id="whoRoleBadge">-</span>
       </div>
-      <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
+      <div class="topbar-actions">
+        <button class="logout-btn" onclick="openChangePasswordModal_()">เปลี่ยนรหัสผ่าน</button>
+        <button class="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
+      </div>
     </div>
     <div class="content" id="mainContent"></div>
+  </div>
+
+  <!-- ===================== เปลี่ยนรหัสผ่านของตัวเอง (ทุก Role) ===================== -->
+  <div class="modal-overlay" id="changePasswordModal">
+    <div class="modal">
+      <h3>เปลี่ยนรหัสผ่าน</h3>
+      <div id="changePasswordError" class="error-msg"></div>
+      <div class="field">
+        <label>รหัสผ่านเดิม</label>
+        <input type="password" id="cpOldPassword" autocomplete="current-password" placeholder="รหัสผ่านปัจจุบัน">
+      </div>
+      <div class="field">
+        <label>รหัสผ่านใหม่</label>
+        <input type="password" id="cpNewPassword1" autocomplete="new-password" placeholder="อย่างน้อย 4 ตัวอักษร">
+      </div>
+      <div class="field">
+        <label>ยืนยันรหัสผ่านใหม่</label>
+        <input type="password" id="cpNewPassword2" autocomplete="new-password" placeholder="พิมพ์ซ้ำอีกครั้ง">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeChangePasswordModal_()">ยกเลิก</button>
+        <button class="btn btn-primary" id="cpSaveBtn" onclick="submitChangePassword_()">บันทึก</button>
+      </div>
+    </div>
   </div>
 
   <!-- ===================== USER FORM MODAL (Admin) ===================== -->

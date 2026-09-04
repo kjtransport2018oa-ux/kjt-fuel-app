@@ -140,15 +140,19 @@
     .topbar {
       background: var(--navy);
       color: #fff;
-      padding: 16px 20px;
+      padding: 14px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      row-gap: 10px;
+      column-gap: 10px;
       position: sticky;
       top: 0;
       z-index: 10;
       box-shadow: 0 4px 16px rgba(16,27,51,.16);
     }
+    .topbar .who { min-width: 0; }
     .topbar .who h2 { margin: 0; font-size: 16px; font-weight: 600; }
     .topbar .who span { font-size: 12px; color: #99A6C4; }
     .role-badge {
@@ -174,6 +178,7 @@
       transition: background .15s;
     }
     .logout-btn:active { background: rgba(255,255,255,.22); }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
     .content { padding: 20px; max-width: 900px; margin: 0 auto; }
 

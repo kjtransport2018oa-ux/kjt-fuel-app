@@ -1294,6 +1294,70 @@ function handlePwaInstallClick_() {
       document.getElementById('fUsername').disabled = false;
     }
 
+    /* ---------- เปลี่ยนรหัสผ่านของตัวเอง (ทุก Role) ---------- */
+    function openChangePasswordModal_() {
+      document.getElementById('changePasswordError').style.display = 'none';
+      document.getElementById('cpOldPassword').value = '';
+      document.getElementById('cpNewPassword1').value = '';
+      document.getElementById('cpNewPassword2').value = '';
+      document.getElementById('changePasswordModal').classList.add('open');
+    }
+
+    function closeChangePasswordModal_() {
+      document.getElementById('changePasswordModal').classList.remove('open');
+    }
+
+    function submitChangePassword_() {
+      const oldPassword = document.getElementById('cpOldPassword').value;
+      const newPassword1 = document.getElementById('cpNewPassword1').value;
+      const newPassword2 = document.getElementById('cpNewPassword2').value;
+      const errBox = document.getElementById('changePasswordError');
+      const btn = document.getElementById('cpSaveBtn');
+      errBox.style.display = 'none';
+
+      if (!oldPassword || !newPassword1 || !newPassword2) {
+        errBox.textContent = 'กรุณากรอกข้อมูลให้ครบทุกช่อง';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (newPassword1.length < 4) {
+        errBox.textContent = 'รหัสผ่านใหม่ต้องมีอย่างน้อย 4 ตัวอักษร (เช่น ใช้เบอร์โทรศัพท์ตัวเองก็ได้)';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (newPassword1 !== newPassword2) {
+        errBox.textContent = 'รหัสผ่านใหม่ทั้ง 2 ช่องไม่ตรงกัน กรุณาพิมพ์ซ้ำอีกครั้ง';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (newPassword1 === oldPassword) {
+        errBox.textContent = 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="border-color:rgba(255,255,255,.4);border-top-color:#fff;"></span>กำลังบันทึก...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'บันทึก';
+          if (!res.success) {
+            errBox.textContent = res.message || 'เปลี่ยนรหัสผ่านไม่สำเร็จ';
+            errBox.style.display = 'block';
+            return;
+          }
+          closeChangePasswordModal_();
+          showToast('เปลี่ยนรหัสผ่านสำเร็จ');
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = 'บันทึก';
+          errBox.textContent = 'เกิดข้อผิดพลาด: ' + err.message;
+          errBox.style.display = 'block';
+        })
+        .changeOwnPassword(sessionToken, oldPassword, newPassword1);
+    }
+
     function saveUser() {
       const username = document.getElementById('fUsername').value.trim();
       const firstName = document.getElementById('fFirstName').value.trim();
