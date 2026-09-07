@@ -182,6 +182,37 @@
 
     .content { padding: 20px; max-width: 900px; margin: 0 auto; }
 
+    /* ---------- แถบเตือนคิวออฟไลน์ (รอซิงค์ข้อมูล) ---------- */
+    .offline-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: #FFF4DE;
+      color: var(--amber-dark);
+      border-bottom: 1.5px solid #FFE0A3;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .offline-banner.show { display: flex; animation: offlineBannerIn .2s var(--ease); }
+    @keyframes offlineBannerIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    .offline-banner-text { display: flex; align-items: center; gap: 6px; }
+    .offline-banner-btn {
+      background: var(--amber-dark);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 700;
+      font-family: 'Sarabun', sans-serif;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .offline-banner-btn:active { opacity: .85; }
+
     /* ---------- Placeholder for roles not yet built ---------- */
     .placeholder {
       background: var(--card);

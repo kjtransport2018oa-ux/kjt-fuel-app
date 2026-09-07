@@ -11,14 +11,23 @@ let editingUsername = null; // null = creating new user
 
 // แก้เป็น URL เว็บแอป Apps Script ที่ deploy ไว้ (เหมือนเดิม ไม่เปลี่ยน)
 const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwCfj9OYb3CZQZLxt0bmxA1fIcsPuP_Djz5yTH00kyFORFcqgNjJQsbeZXUOUlkt5l1/exec';
+const API_TIMEOUT_MS_ = 15000; // ถ้าเซิร์ฟเวอร์ไม่ตอบภายใน 15 วิ ถือว่า "ช้าผิดปกติ" ตัดจบไม่ให้ค้างรอไม่มีที่สิ้นสุด
+
+/** fetch พร้อม timeout — กันปัญหา "เซิร์ฟเวอร์ตอบสนองช้า" ที่ทำให้หน้าเว็บหมุนค้างไม่รู้จบ */
+function fetchWithTimeout_(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+  return fetch(url, Object.assign({}, options, { signal: controller.signal }))
+    .finally(function () { clearTimeout(timer); });
+}
 
 function callGasApi_(functionName, args) {
-  return fetch(API_BASE_URL, {
+  return fetchWithTimeout_(API_BASE_URL, {
     method: 'POST',
     // ใช้ text/plain เพื่อให้เป็น "simple request" เลี่ยง CORS preflight (OPTIONS) ที่ Apps Script รองรับได้ไม่ดี
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ fn: functionName, args: args })
-  }).then(function (res) {
+  }, API_TIMEOUT_MS_).then(function (res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   });
@@ -52,6 +61,119 @@ window.google.script = window.google.script || {};
 Object.defineProperty(window.google.script, 'run', {
   get: function () { return createScriptRunProxy_(null, null); }
 });
+
+/* =========================================================================
+   OFFLINE QUEUE — บันทึกการเติมน้ำมันไว้ใน localStorage ชั่วคราว
+   เผื่อกรณี Google Sheets/Apps Script ล่ม, เน็ตหลุด, หรือตอบสนองช้าผิดปกติ
+   ตอนนี้ครอบคลุมเฉพาะ "บันทึกการเติมน้ำมัน" (submitFuelLog) ซึ่งเป็นจุดเสี่ยงหน้างานที่สุด
+   ที่เขียนเป็นระบบกลางแบบนี้เพื่อให้ต่อยอดครอบคลุม action อื่นได้ในอนาคตถ้าต้องการ
+   ========================================================================= */
+const OFFLINE_QUEUE_KEY_ = 'kjtHub_offlineFuelQueue_v1';
+let offlineSyncInFlight_ = false;
+
+function genClientRequestId_() {
+  if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'cid-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function loadOfflineQueue_() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY_);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+
+function saveOfflineQueue_(queue) {
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY_, JSON.stringify(queue)); } catch (e) { /* localStorage เต็ม/ถูกปิด — ไม่ critical แค่จะไม่รอด browser ปิด */ }
+}
+
+function queueFuelLogOffline_(payload) {
+  const queue = loadOfflineQueue_();
+  queue.push({
+    clientRequestId: payload.clientRequestId,
+    payload: payload,
+    queuedAt: new Date().toISOString(),
+    // เก็บชื่อคนที่คีย์จริง ณ ตอนนั้นไว้ด้วย — กันเวลาเครื่องเดียวกันสลับกันใช้หลายคน (เช่น เปลี่ยนกะ)
+    // แล้วอีกคน login ทับก่อนจะ sync จะได้ไม่ยิงข้อมูลออกไปในนามคนที่ login อยู่ปัจจุบันผิดคน
+    queuedByUsername: currentUser ? currentUser.username : null
+  });
+  saveOfflineQueue_(queue);
+  renderOfflineBanner_();
+}
+
+function removeFromOfflineQueue_(clientRequestId) {
+  const queue = loadOfflineQueue_().filter(function (item) { return item.clientRequestId !== clientRequestId; });
+  saveOfflineQueue_(queue);
+  renderOfflineBanner_();
+}
+
+/** วาดแถบเตือนเหลือง — แสดงเฉพาะตอนมีรายการค้างซิงค์เท่านั้น ไม่มีก็ไม่โชว์อะไรเลย
+ *  แยกนับรายการของ "ผู้ใช้ปัจจุบัน" กับ "ผู้ใช้อื่นที่ค้างจากรอบก่อน" (กรณีเครื่องเดียวกันสลับกันใช้หลายคน) */
+function renderOfflineBanner_() {
+  const banner = document.getElementById('offlineBanner');
+  if (!banner) return;
+  const queue = loadOfflineQueue_();
+  if (queue.length === 0) { banner.classList.remove('show'); banner.innerHTML = ''; return; }
+
+  const myUsername = currentUser ? currentUser.username : null;
+  const mine = queue.filter(function (item) { return !item.queuedByUsername || item.queuedByUsername === myUsername; });
+  const others = queue.length - mine.length;
+
+  banner.classList.add('show');
+  let text = '⚠ กำลังบันทึกแบบออฟไลน์ รอซิงค์ข้อมูล (' + mine.length + ' รายการ)';
+  if (others > 0) text += ' และมีอีก ' + others + ' รายการจากผู้ใช้อื่นที่ค้างอยู่ในเครื่องนี้';
+
+  banner.innerHTML =
+    '<span class="offline-banner-text">' + text + '</span>' +
+    (mine.length > 0 ? '<button type="button" class="offline-banner-btn" onclick="trySyncOfflineQueue_(true)">ซิงค์ตอนนี้</button>' : '');
+}
+
+/** ส่งข้อมูลที่ค้างอยู่เข้า Google Sheets ทีละรายการตามลำดับที่บันทึกไว้ (กันข้อมูลสลับลำดับ)
+ *  ฝั่ง Code.gs มีการเช็ค clientRequestId ซ้ำให้แล้ว ต่อให้ sync ซ้ำ 2 รอบก็จะไม่มีข้อมูลซ้ำเข้าชีท
+ *  sync เฉพาะรายการที่ "ผู้ใช้ปัจจุบัน" เป็นคนคีย์ไว้เองเท่านั้น — ถ้าเครื่องเดียวกันมีรายการค้างจากคนอื่น
+ *  (เช่น สลับกะกันใช้เครื่อง) จะข้ามไปก่อน ไม่ยิงออกไปในนามคนที่ login อยู่ตอนนี้ผิดคน */
+function trySyncOfflineQueue_(manual) {
+  if (offlineSyncInFlight_) return;
+  const queue = loadOfflineQueue_();
+  if (queue.length === 0) { if (manual) showToast('ไม่มีรายการค้างซิงค์'); return; }
+  if (!sessionToken || !currentUser) { if (manual) showToast('กรุณาเข้าสู่ระบบก่อนซิงค์ข้อมูล', true); return; } // ยังไม่ login — รอรอบถัดไปหลัง login สำเร็จ ไม่ตัดคิวทิ้ง
+  if (!navigator.onLine) { if (manual) showToast('อุปกรณ์ยังไม่ได้เชื่อมต่ออินเทอร์เน็ต', true); return; }
+
+  const item = queue.find(function (it) { return !it.queuedByUsername || it.queuedByUsername === currentUser.username; });
+  if (!item) {
+    if (manual) showToast('รายการที่ค้างอยู่เป็นของผู้ใช้อื่น กรุณาเข้าสู่ระบบด้วยบัญชีนั้นเพื่อซิงค์', true);
+    return;
+  }
+
+  offlineSyncInFlight_ = true;
+
+  callGasApi_('submitFuelLog', [sessionToken, item.payload])
+    .then(function (res) {
+      offlineSyncInFlight_ = false;
+      if (res && res.success) {
+        removeFromOfflineQueue_(item.clientRequestId);
+        showToast('ซิงค์ข้อมูลออฟไลน์สำเร็จ' + (loadOfflineQueue_().length ? ' (เหลืออีก ' + loadOfflineQueue_().length + ' รายการ)' : ''));
+        trySyncOfflineQueue_(false); // มีคิวต่อ ให้ทยอยส่งต่อทันที
+      } else if (res && res.message && res.message.indexOf('เซสชันหมดอายุ') !== -1) {
+        // session หมดอายุระหว่างที่ข้อมูลค้างอยู่ในคิว — ไม่ใช่ข้อมูลผิด ห้ามลบทิ้ง ให้รอ login ใหม่แล้วค่อยลองอีกครั้ง
+        if (manual) showToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนซิงค์ข้อมูลที่ค้างอยู่', true);
+      } else {
+        // เซิร์ฟเวอร์ตอบกลับมาแล้วแต่ไม่สำเร็จจริง (เช่น validation ไม่ผ่าน) — ไม่ใช่ปัญหาเน็ต ต้องเอาออกจากคิว
+        // ไม่งั้นจะวนซิงค์ซ้ำรายการที่ไม่มีทางสำเร็จไปเรื่อยๆ
+        removeFromOfflineQueue_(item.clientRequestId);
+        showToast('ข้อมูลออฟไลน์ 1 รายการซิงค์ไม่ผ่าน กรุณาตรวจสอบและคีย์ใหม่: ' + (res && res.message ? res.message : 'ไม่ทราบสาเหตุ'), true);
+        trySyncOfflineQueue_(false);
+      }
+    })
+    .catch(function () {
+      offlineSyncInFlight_ = false;
+      // ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้เหมือนเดิม — ปล่อยคิวไว้ก่อน รอรอบถัดไปจาก auto-sync
+      if (manual) showToast('ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ลองใหม่อีกครั้งภายหลัง', true);
+    });
+}
+
+window.addEventListener('online', function () { trySyncOfflineQueue_(false); });
+setInterval(function () { if (navigator.onLine) trySyncOfflineQueue_(false); }, 30000); // เผื่อกรณี browser ไม่ยิง event 'online' ตรงๆ (บาง Android WebView)
 
 /* ---------- PWA: เพิ่มลงหน้าจอหลัก ---------- */
 // สำคัญ: ต้องดักฟัง beforeinstallprompt ให้เร็วที่สุด (นอก DOMContentLoaded) เพราะบางเบราว์เซอร์
@@ -247,6 +369,8 @@ function handlePwaInstallClick_() {
       driverView = 'menu';
       attendantView = 'menu';
       renderMain();
+      renderOfflineBanner_();
+      trySyncOfflineQueue_(false); // เข้าแอปสำเร็จ (login ตรง/auto-login) — ลองซิงค์รายการที่ค้างจากรอบก่อนทันที
     }
 
     let adminActiveTab = 'schedule';
@@ -923,33 +1047,44 @@ function handlePwaInstallClick_() {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>กำลังบันทึก...';
 
-      google.script.run
-        .withSuccessHandler(function (res) {
+      const payload = {
+        scheduleId: attendantSelectedJob.id,
+        startMeter: attendantStartMeter,
+        endMeter: attendantEndMeter,
+        driverSignature: driverSigPad.toDataURL(),
+        attendantSignature: staffSigPad.toDataURL(),
+        clientRequestId: genClientRequestId_() // ใช้กันบันทึกซ้ำตอน retry/sync ภายหลัง
+      };
+
+      callGasApi_('submitFuelLog', [sessionToken, payload])
+        .then(function (res) {
           btn.disabled = false;
           btn.textContent = 'ยืนยันการเติมน้ำมัน';
           if (res.success) {
             showToast('บันทึกการเติมน้ำมันเรียบร้อย (' + res.litersActual + ' ลิตร)');
-            attendantView = 'menu';
-            attendantDriver = null;
-            attendantJobs = [];
-            attendantSelectedJob = null;
-            renderAttendantHome();
           } else {
             showToast(res.message, true);
+            return; // validation ไม่ผ่าน — ให้ user แก้ไขในหน้าเดิมต่อ ไม่ต้องกลับเมนู
           }
+          finishAttendantFuelSubmit_();
         })
-        .withFailureHandler(function (err) {
+        .catch(function () {
+          // เน็ตหลุด/เซิร์ฟเวอร์ตอบช้าเกิน 15 วิ/ล่ม — เก็บเข้าคิวออฟไลน์แทนที่จะปล่อยให้ user ค้างรอหน้างาน
+          queueFuelLogOffline_(payload);
           btn.disabled = false;
           btn.textContent = 'ยืนยันการเติมน้ำมัน';
-          showToast('บันทึกไม่สำเร็จ: ' + err.message, true);
-        })
-        .submitFuelLog(sessionToken, {
-          scheduleId: attendantSelectedJob.id,
-          startMeter: attendantStartMeter,
-          endMeter: attendantEndMeter,
-          driverSignature: driverSigPad.toDataURL(),
-          attendantSignature: staffSigPad.toDataURL()
+          showToast('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ตอนนี้ บันทึกข้อมูลไว้ในเครื่องแล้ว จะซิงค์อัตโนมัติเมื่อกลับมาใช้งานได้', true);
+          finishAttendantFuelSubmit_();
+          trySyncOfflineQueue_(false); // ลองซิงค์ทันทีเผื่อจริงๆ แค่สะดุดแป๊บเดียว
         });
+    }
+
+    function finishAttendantFuelSubmit_() {
+      attendantView = 'menu';
+      attendantDriver = null;
+      attendantJobs = [];
+      attendantSelectedJob = null;
+      renderAttendantHome();
     }
 
     function isoDate_(d) {
@@ -2266,4 +2401,6 @@ function handlePwaInstallClick_() {
       });
       tryAutoLogin();
       setupPwa_();
+      renderOfflineBanner_(); // เผื่อมีรายการค้างซิงค์จากรอบก่อนหน้าที่ปิดแอปไปตอนยังไม่ได้ซิงค์
+      trySyncOfflineQueue_(false);
     });
