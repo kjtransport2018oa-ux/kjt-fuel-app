@@ -1614,8 +1614,27 @@ function handlePwaInstallClick_() {
     const THAI_MONTHS_UI_ = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
     let lastReportParams_ = null;
 
-    function renderSupervisorReportPage_() {
+    let reportActiveTab_ = 'monthly';
+
+    function renderSupervisorReportPage_(tab) {
+      reportActiveTab_ = tab || reportActiveTab_ || 'monthly';
       const el = document.getElementById('mainContent');
+
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="goSupervisorView(\'menu\')">← กลับเมนูหลัก</button>' +
+        '<div class="tab-bar">' +
+          '<button type="button" class="tab-btn' + (reportActiveTab_ === 'monthly' ? ' active' : '') + '" onclick="renderSupervisorReportPage_(\'monthly\')">สรุปรายเดือน</button>' +
+          '<button type="button" class="tab-btn' + (reportActiveTab_ === 'variance' ? ' active' : '') + '" onclick="renderSupervisorReportPage_(\'variance\')">ตรวจสอบความผิดปกติ</button>' +
+        '</div>' +
+        '<div id="reportBody"></div>';
+
+      if (reportActiveTab_ === 'variance') renderVarianceReportBody_();
+      else renderMonthlyReportBody_();
+    }
+
+    /* ---------- แท็บ 1: สรุปรายเดือน (ของเดิม) ---------- */
+    function renderMonthlyReportBody_() {
+      const el = document.getElementById('reportBody');
       const now = new Date();
       const curYear = now.getFullYear();
 
@@ -1629,7 +1648,6 @@ function handlePwaInstallClick_() {
       }
 
       el.innerHTML =
-        '<button type="button" class="back-link" onclick="goSupervisorView(\'menu\')">← กลับเมนูหลัก</button>' +
         '<div class="panel">' +
           '<div class="panel-title"><h3>รายงานข้อมูลการเติมน้ำมัน (Report &amp; Dashboard)</h3></div>' +
           '<p class="panel-hint">เลือกช่วงเวลาและพนักงานขับรถที่ต้องการดูรายงาน</p>' +
@@ -1787,6 +1805,125 @@ function handlePwaInstallClick_() {
       a.href = url; a.download = fileName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }
+
+    /* ---------- แท็บ 2: รายงานตรวจสอบความผิดปกติของการเติมน้ำมัน (Fuel Variance & Mismatch Report) ---------- */
+    function renderVarianceReportBody_() {
+      const el = document.getElementById('reportBody');
+      const now = new Date();
+      const curYear = now.getFullYear();
+
+      let monthOptions = '';
+      for (let m = 1; m <= 12; m++) {
+        monthOptions += '<option value="' + m + '"' + (m === now.getMonth() + 1 ? ' selected' : '') + '>' + THAI_MONTHS_UI_[m] + '</option>';
+      }
+      let yearOptions = '';
+      for (let y = curYear; y >= curYear - 2; y--) {
+        yearOptions += '<option value="' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+
+      el.innerHTML =
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>ตรวจสอบความผิดปกติของการเติมน้ำมัน (Fuel Variance &amp; Mismatch)</h3></div>' +
+          '<p class="panel-hint">แสดงเฉพาะเที่ยวที่เติมจริงไม่ตรงกับแผน — ไม่เลือกทะเบียนรถ = แสดงทุกทะเบียนในเดือนนั้น</p>' +
+          '<div class="filter-row">' +
+            '<select id="varMonth">' + monthOptions + '</select>' +
+            '<select id="varYear">' + yearOptions + '</select>' +
+            '<select id="varPlate"><option value="ALL">ทั้งหมด (ทุกทะเบียน)</option></select>' +
+          '</div>' +
+          '<div class="filter-row" style="margin-bottom:0;">' +
+            '<button class="btn btn-primary" id="varSearchBtn" onclick="loadVarianceReport_()" style="width:auto;">ค้นหา</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="varianceResultArea"></div>';
+
+      loadPlateOptionsForVariance_();
+      loadVarianceReport_(); // ตามเงื่อนไข: ไม่เลือกทะเบียน = โชว์ทุกทะเบียนทันที ไม่ต้องรอกดค้นหา
+    }
+
+    function loadPlateOptionsForVariance_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const sel = document.getElementById('varPlate');
+          if (!sel || !res.success) return;
+          res.plates.forEach(function (plate) {
+            const opt = document.createElement('option');
+            opt.value = plate; opt.textContent = plate;
+            sel.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list ทะเบียนไม่ขึ้น ยังใช้ "ทั้งหมด" ได้ปกติ */ })
+        .getPlateNumberOptions(sessionToken);
+    }
+
+    function loadVarianceReport_() {
+      const monthEl = document.getElementById('varMonth');
+      const yearEl = document.getElementById('varYear');
+      const plateEl = document.getElementById('varPlate');
+      if (!monthEl || !yearEl || !plateEl) return; // เผื่อ tab ถูกสลับไปแล้วก่อน callback กลับมาถึง
+
+      const month = monthEl.value, year = yearEl.value, plate = plateEl.value;
+      const resultEl = document.getElementById('varianceResultArea');
+      const searchBtn = document.getElementById('varSearchBtn');
+
+      searchBtn.disabled = true;
+      resultEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังตรวจสอบข้อมูล...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (searchBtn) searchBtn.disabled = false;
+          if (!res.success) {
+            resultEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดรายงานไม่สำเร็จ') + '</div>';
+            return;
+          }
+          renderVarianceResult_(res);
+        })
+        .withFailureHandler(function (err) {
+          if (searchBtn) searchBtn.disabled = false;
+          resultEl.innerHTML = '<div class="empty-state">โหลดรายงานไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getFuelVarianceReport(sessionToken, year, month, plate);
+    }
+
+    function renderVarianceResult_(res) {
+      const resultEl = document.getElementById('varianceResultArea');
+      const s = res.summary;
+
+      let html = '<div class="summary-cards" style="grid-template-columns:repeat(4,1fr);">' +
+        summaryCardHtml_(s.mismatchCount, 'รายการผิดปกติ') +
+        summaryCardHtml_(s.overCount, 'เติมเกินแผน') +
+        summaryCardHtml_(s.underCount, 'เติมน้อยกว่าแผน') +
+        summaryCardHtml_(s.netVariance, 'ส่วนต่างสุทธิ (ลิตร)') +
+      '</div>';
+
+      if (!res.rows.length) {
+        html += '<div class="empty-state">ไม่พบรายการที่เติมน้ำมันผิดไปจากแผนในเดือน ' + escapeHtml(res.monthLabel) +
+          (res.plateNumber !== 'ทั้งหมด' ? ' สำหรับทะเบียน ' + escapeHtml(res.plateNumber) : '') + ' — ข้อมูลตรงตามแผนทั้งหมด</div>';
+        resultEl.innerHTML = html;
+        return;
+      }
+
+      html += '<div class="panel"><div class="panel-title"><h3>รายการที่เติมไม่ตรงแผน (' + escapeHtml(res.monthLabel) + ')</h3></div>' +
+        '<div class="grid-scroll"><table class="report-table"><thead><tr>' +
+        '<th>วันที่</th><th>ทะเบียน</th><th>คนขับ</th><th>เส้นทาง/ลูกค้า</th><th>แผน (ลิตร)</th><th>เติมจริง (ลิตร)</th><th>ส่วนต่าง</th><th>สถานะ</th>' +
+        '</tr></thead><tbody>' +
+        res.rows.map(function (r) {
+          const isOver = r.status === 'over';
+          const varianceText = (isOver ? '+' : '') + Number(r.variance).toLocaleString('th-TH');
+          return '<tr class="variance-row ' + r.status + '">' +
+            '<td>' + escapeHtml(r.fillDate) + '</td>' +
+            '<td>' + escapeHtml(r.plateNumber) + '</td>' +
+            '<td>' + escapeHtml(r.driverName) + '</td>' +
+            '<td>' + escapeHtml(r.location) + '</td>' +
+            '<td>' + Number(r.litersPlanned).toLocaleString('th-TH') + '</td>' +
+            '<td>' + Number(r.litersActual).toLocaleString('th-TH') + '</td>' +
+            '<td style="font-weight:700;">' + varianceText + '</td>' +
+            '<td><span class="status-pill ' + r.status + '">' + (isOver ? 'เติมเกิน (Over)' : 'เติมน้อยกว่าแผน (Under)') + '</span></td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div></div>';
+
+      resultEl.innerHTML = html;
     }
 
     /* ---------- Supervisor: รับน้ำมันเข้าถัง + สถานะน้ำมันแบบเรียลไทม์ ---------- */
