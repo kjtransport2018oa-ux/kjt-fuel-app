@@ -3,7 +3,7 @@
 // สำคัญ: ไม่แตะ request ที่เป็น POST เลย (คำขอที่ยิงไปหา Apps Script API ทั้งหมดเป็น POST)
 // เพื่อไม่ให้ไปยุ่งกับการเชื่อมต่อฐานข้อมูลจริงโดยไม่ตั้งใจ
 
-const CACHE_NAME = 'kjt-hub-shell-v8'; // เพิ่มรายงานตรวจสอบความผิดปกติการเติมน้ำมัน (v8) — บังคับล้าง cache เดิมทุกเครื่อง
+const CACHE_NAME = 'kjt-hub-shell-v9'; // Fleet+ชื่อคนขับใน Variance Report, จดจำ login ตลอดไป (v9) — บังคับล้าง cache เดิมทุกเครื่อง
 const APP_SHELL = [
   './',
   './index.html',

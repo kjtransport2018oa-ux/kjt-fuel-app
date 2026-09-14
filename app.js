@@ -1825,11 +1825,12 @@ function handlePwaInstallClick_() {
       el.innerHTML =
         '<div class="panel">' +
           '<div class="panel-title"><h3>ตรวจสอบความผิดปกติของการเติมน้ำมัน (Fuel Variance &amp; Mismatch)</h3></div>' +
-          '<p class="panel-hint">แสดงเฉพาะเที่ยวที่เติมจริงไม่ตรงกับแผน — ไม่เลือกทะเบียนรถ = แสดงทุกทะเบียนในเดือนนั้น</p>' +
+          '<p class="panel-hint">แสดงเฉพาะเที่ยวที่เติมจริงไม่ตรงกับแผน — ไม่เลือก Fleet/คนขับ = แสดงทั้งหมดในเดือนนั้น</p>' +
           '<div class="filter-row">' +
             '<select id="varMonth">' + monthOptions + '</select>' +
             '<select id="varYear">' + yearOptions + '</select>' +
-            '<select id="varPlate"><option value="ALL">ทั้งหมด (ทุกทะเบียน)</option></select>' +
+            '<select id="varFleet"><option value="ALL">ทุก Fleet</option></select>' +
+            '<select id="varDriver"><option value="ALL">ทุกคนขับ</option></select>' +
           '</div>' +
           '<div class="filter-row" style="margin-bottom:0;">' +
             '<button class="btn btn-primary" id="varSearchBtn" onclick="loadVarianceReport_()" style="width:auto;">ค้นหา</button>' +
@@ -1837,32 +1838,49 @@ function handlePwaInstallClick_() {
         '</div>' +
         '<div id="varianceResultArea"></div>';
 
-      loadPlateOptionsForVariance_();
-      loadVarianceReport_(); // ตามเงื่อนไข: ไม่เลือกทะเบียน = โชว์ทุกทะเบียนทันที ไม่ต้องรอกดค้นหา
+      loadFleetOptionsForVariance_();
+      loadDriverOptionsForVariance_();
+      loadVarianceReport_(); // ตามเงื่อนไข: ไม่เลือก filter = โชว์ทั้งหมดทันที ไม่ต้องรอกดค้นหา
     }
 
-    function loadPlateOptionsForVariance_() {
+    function loadFleetOptionsForVariance_() {
       google.script.run
         .withSuccessHandler(function (res) {
-          const sel = document.getElementById('varPlate');
+          const sel = document.getElementById('varFleet');
           if (!sel || !res.success) return;
-          res.plates.forEach(function (plate) {
+          res.fleets.forEach(function (fleet) {
             const opt = document.createElement('option');
-            opt.value = plate; opt.textContent = plate;
+            opt.value = fleet; opt.textContent = fleet;
             sel.appendChild(opt);
           });
         })
-        .withFailureHandler(function () { /* ไม่ critical — แค่ list ทะเบียนไม่ขึ้น ยังใช้ "ทั้งหมด" ได้ปกติ */ })
-        .getPlateNumberOptions(sessionToken);
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list Fleet ไม่ขึ้น ยังใช้ "ทุก Fleet" ได้ปกติ */ })
+        .getFleetOptions(sessionToken);
+    }
+
+    function loadDriverOptionsForVariance_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const sel = document.getElementById('varDriver');
+          if (!sel || !res.success) return;
+          res.drivers.forEach(function (name) {
+            const opt = document.createElement('option');
+            opt.value = name; opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list คนขับไม่ขึ้น ยังใช้ "ทุกคนขับ" ได้ปกติ */ })
+        .getDriverNameOptions(sessionToken);
     }
 
     function loadVarianceReport_() {
       const monthEl = document.getElementById('varMonth');
       const yearEl = document.getElementById('varYear');
-      const plateEl = document.getElementById('varPlate');
-      if (!monthEl || !yearEl || !plateEl) return; // เผื่อ tab ถูกสลับไปแล้วก่อน callback กลับมาถึง
+      const fleetEl = document.getElementById('varFleet');
+      const driverEl = document.getElementById('varDriver');
+      if (!monthEl || !yearEl || !fleetEl || !driverEl) return; // เผื่อ tab ถูกสลับไปแล้วก่อน callback กลับมาถึง
 
-      const month = monthEl.value, year = yearEl.value, plate = plateEl.value;
+      const month = monthEl.value, year = yearEl.value, fleet = fleetEl.value, driver = driverEl.value;
       const resultEl = document.getElementById('varianceResultArea');
       const searchBtn = document.getElementById('varSearchBtn');
 
@@ -1882,7 +1900,7 @@ function handlePwaInstallClick_() {
           if (searchBtn) searchBtn.disabled = false;
           resultEl.innerHTML = '<div class="empty-state">โหลดรายงานไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
         })
-        .getFuelVarianceReport(sessionToken, year, month, plate);
+        .getFuelVarianceReport(sessionToken, year, month, fleet, driver);
     }
 
     function renderVarianceResult_(res) {
@@ -1897,21 +1915,25 @@ function handlePwaInstallClick_() {
       '</div>';
 
       if (!res.rows.length) {
+        let filterNote = '';
+        if (res.fleet !== 'ทั้งหมด') filterNote += ' Fleet ' + escapeHtml(res.fleet);
+        if (res.driverName !== 'ทั้งหมด') filterNote += ' คนขับ ' + escapeHtml(res.driverName);
         html += '<div class="empty-state">ไม่พบรายการที่เติมน้ำมันผิดไปจากแผนในเดือน ' + escapeHtml(res.monthLabel) +
-          (res.plateNumber !== 'ทั้งหมด' ? ' สำหรับทะเบียน ' + escapeHtml(res.plateNumber) : '') + ' — ข้อมูลตรงตามแผนทั้งหมด</div>';
+          (filterNote ? ' สำหรับ' + filterNote : '') + ' — ข้อมูลตรงตามแผนทั้งหมด</div>';
         resultEl.innerHTML = html;
         return;
       }
 
       html += '<div class="panel"><div class="panel-title"><h3>รายการที่เติมไม่ตรงแผน (' + escapeHtml(res.monthLabel) + ')</h3></div>' +
         '<div class="grid-scroll"><table class="report-table"><thead><tr>' +
-        '<th>วันที่</th><th>ทะเบียน</th><th>คนขับ</th><th>เส้นทาง/ลูกค้า</th><th>แผน (ลิตร)</th><th>เติมจริง (ลิตร)</th><th>ส่วนต่าง</th><th>สถานะ</th>' +
+        '<th>วันที่</th><th>Fleet</th><th>ทะเบียน</th><th>คนขับ</th><th>เส้นทาง/ลูกค้า</th><th>แผน (ลิตร)</th><th>เติมจริง (ลิตร)</th><th>ส่วนต่าง</th><th>สถานะ</th>' +
         '</tr></thead><tbody>' +
         res.rows.map(function (r) {
           const isOver = r.status === 'over';
           const varianceText = (isOver ? '+' : '') + Number(r.variance).toLocaleString('th-TH');
           return '<tr class="variance-row ' + r.status + '">' +
             '<td>' + escapeHtml(r.fillDate) + '</td>' +
+            '<td>' + escapeHtml(r.fleet) + '</td>' +
             '<td>' + escapeHtml(r.plateNumber) + '</td>' +
             '<td>' + escapeHtml(r.driverName) + '</td>' +
             '<td>' + escapeHtml(r.location) + '</td>' +
