@@ -519,21 +519,24 @@ function handlePwaInstallClick_() {
     function renderDriverHistoryList(rows) {
       const list = document.getElementById('driverHistoryList');
       if (!rows.length) { list.innerHTML = '<div class="empty-state">ไม่มีข้อมูลในเดือนที่เลือก</div>'; return; }
-      list.innerHTML = rows.map(function (r) {
-        return (
-          '<div class="user-card">' +
-            '<div class="user-info">' +
-              '<div class="name">' + escapeHtml(r.date) + ' · ทะเบียน ' + escapeHtml(r.plateNumber) + '</div>' +
-              '<div class="meta">' +
-                (r.fleet ? '<span class="fleet-pill">' + escapeHtml(r.fleet) + '</span>' : '') +
-                escapeHtml(r.location) + (r.location ? ' · ' : '') + escapeHtml(r.district) + ' ' + escapeHtml(r.province) +
-                ' · ' + escapeHtml(String(r.liters)) + ' ลิตร' +
-              '</div>' +
-              '<div class="meta"><span class="status-pill filled">เติมแล้ว</span></div>' +
-            '</div>' +
-          '</div>'
-        );
-      }).join('');
+
+      let html = '<div class="grid-scroll"><table class="report-table"><thead><tr>' +
+        '<th>No.</th><th>วันที่</th><th>Fleet</th><th>ทะเบียน</th><th>สถานที่</th><th>อำเภอ</th><th>จังหวัด</th><th>ลิตร</th>' +
+      '</tr></thead><tbody>';
+      rows.forEach(function (r, i) {
+        html += '<tr>' +
+          '<td>' + (i + 1) + '</td>' +
+          '<td>' + escapeHtml(r.date) + '</td>' +
+          '<td>' + escapeHtml(r.fleet || '') + '</td>' +
+          '<td>' + escapeHtml(r.plateNumber || '') + '</td>' +
+          '<td>' + escapeHtml(r.location || '') + '</td>' +
+          '<td>' + escapeHtml(r.district || '') + '</td>' +
+          '<td>' + escapeHtml(r.province || '') + '</td>' +
+          '<td>' + escapeHtml(String(r.liters)) + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+      list.innerHTML = html;
     }
 
     /* ---------- Driver: แผนที่ส่งสินค้า / จุดเสี่ยง ---------- */
