@@ -1662,6 +1662,9 @@ function handlePwaInstallClick_() {
       const record = records[healthCurrentIndex_];
       if (!record) { bodyEl.innerHTML = '<div class="empty-state">ไม่พบข้อมูล</div>'; return; }
 
+      // ประเมินความเสี่ยง/โรคที่ต้องเฝ้าระวังของปีที่กำลังดูอยู่ (คำนวณฝั่งเบราว์เซอร์ทั้งหมด)
+      const assess = healthAssessRecord_(record);
+
       let html = '';
 
       // ชิปเลือกปี (ถ้ามีมากกว่า 1 ปี)
@@ -1679,6 +1682,9 @@ function handlePwaInstallClick_() {
         summaryCardHtml_((record.sbp || '-') + '/' + (record.dbp || '-'), 'ความดัน (mmHg)') +
         summaryCardHtml_(record.fbs || '-', 'น้ำตาล FBS (mg/dl)') +
       '</div>';
+
+      // ดัชนีความเสี่ยงรวม (Low / Medium / High)
+      html += healthRiskPanelHtml_(assess, record);
 
       // ตารางค่าตัวชี้วัดพร้อมสถานะ + คำแนะนำ
       html += '<div class="panel"><div class="panel-title"><h3>ผลตรวจปี ' + escapeHtml(String(record.year)) + ' (บริษัท ' + escapeHtml(record.company || '-') + ')</h3></div>';
@@ -1716,6 +1722,12 @@ function handlePwaInstallClick_() {
       }
       html += '</div>';
 
+      // โรคที่ต้องเฝ้าระวัง -> ผลกระทบต่อการขับรถ -> แนวโน้มย้อนหลัง -> คำแนะนำที่ทำได้จริง
+      html += healthDiseasePanelHtml_(assess);
+      html += healthDrivingPanelHtml_(assess);
+      html += healthTrendPanelHtml_(record);
+      html += healthAdvicePanelHtml_(assess);
+
       // ปุ่มเทียบปีก่อนหน้า (มีถ้ามีมากกว่า 1 ปี)
       if (records.length > 1) {
         html += '<button class="btn btn-outline" style="width:auto;" onclick="loadHealthYoY_()">📊 เทียบกับปีก่อนหน้า</button>' +
@@ -1725,6 +1737,565 @@ function handlePwaInstallClick_() {
       html += '<div class="health-disclaimer">⚠ ข้อมูลนี้เป็นการเทียบค่ากับเกณฑ์อ้างอิงทางการแพทย์ทั่วไปโดยระบบอัตโนมัติ ไม่ใช่คำวินิจฉัยจากแพทย์ หากผลตรวจผิดปกติควรปรึกษาแพทย์เพื่อการวินิจฉัยและรักษาที่ถูกต้องเสมอ</div>';
 
       bodyEl.innerHTML = html;
+    }
+
+    /* =========================================================================
+       ส่วนวิเคราะห์เชิงลึก: แนวโน้มย้อนหลังหลายปี + ดัชนีความเสี่ยงรวม +
+       โรคที่ต้องเฝ้าระวัง + ผลกระทบต่อการขับรถ + คำแนะนำปรับพฤติกรรม
+
+       ทั้งหมดคำนวณฝั่งเบราว์เซอร์จาก healthCurrentRecords_ ที่ backend ส่งมาอยู่แล้ว
+       (ทุกปีของคนคนนั้น) จึงไม่ต้องแก้ Apps Script หรือ deploy ใหม่
+       เกณฑ์ที่ใช้เป็นค่าอ้างอิงทั่วไปสำหรับผู้ใหญ่ ไม่ใช่การวินิจฉัยของแพทย์
+       ถ้าปีหน้าอยากปรับเกณฑ์ ให้แก้ที่ HEALTH_RISK_RULES_ / HEALTH_DISEASE_DEF_ จุดเดียว
+       ========================================================================= */
+
+    /** เพศในไฟล์ผลตรวจเป็นภาษาไทย ('ชาย'/'หญิง') — บางเกณฑ์ (Hb, Creatinine) ต่างกันตามเพศ */
+    function healthIsMale_(record) {
+      const g = String(record && record.gender || '').trim();
+      return g.indexOf('ช') === 0 || g.toLowerCase().indexOf('m') === 0;
+    }
+
+    function healthNum_(v) {
+      if (v === '' || v === null || v === undefined) return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
+    }
+
+    /* ---------- กฎประเมินค่าแต่ละตัว ----------
+       level: 'normal' | 'watch' | 'risk'      points = น้ำหนักที่ใช้คิดดัชนีความเสี่ยงรวม
+       band  = ช่วงปกติที่ใช้วาดแถบเขียวในกราฟแนวโน้ม
+       critical = true คือค่าที่ควรให้แพทย์ประเมินก่อนขึ้นขับรถ (ใช้ในหัวข้อ Fit to Drive) */
+    const HEALTH_RISK_RULES_ = [
+      {
+        key: 'bmi', maxPoints: 15, label: 'ดัชนีมวลกาย (BMI)', unit: '', decimals: 1, band: [18.5, 22.9], disease: 'metabolic',
+        evaluate: function (v) {
+          if (v >= 30) return { level: 'risk', points: 15, note: 'อ้วนระดับ 2 ขึ้นไป' };
+          if (v >= 25) return { level: 'risk', points: 10, note: 'อ้วน' };
+          if (v >= 23) return { level: 'watch', points: 5, note: 'น้ำหนักเกิน' };
+          if (v < 18.5) return { level: 'watch', points: 5, note: 'ผอมกว่าเกณฑ์' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'sbp', maxPoints: 30, label: 'ความดันตัวบน (SBP)', unit: 'mmHg', decimals: 0, band: [90, 129], disease: 'hypertension',
+        evaluate: function (v) {
+          if (v >= 180) return { level: 'risk', points: 30, critical: true, note: 'ความดันสูงมาก' };
+          if (v >= 140) return { level: 'risk', points: 18, note: 'ความดันโลหิตสูง' };
+          if (v >= 130) return { level: 'watch', points: 8, note: 'เริ่มสูง' };
+          if (v < 90) return { level: 'watch', points: 6, note: 'ความดันต่ำ' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'dbp', maxPoints: 25, label: 'ความดันตัวล่าง (DBP)', unit: 'mmHg', decimals: 0, band: [60, 84], disease: 'hypertension',
+        evaluate: function (v) {
+          if (v >= 110) return { level: 'risk', points: 25, critical: true, note: 'ความดันล่างสูงมาก' };
+          if (v >= 90) return { level: 'risk', points: 14, note: 'ความดันล่างสูง' };
+          if (v >= 85) return { level: 'watch', points: 6, note: 'เริ่มสูง' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'pulse', maxPoints: 8, label: 'ชีพจร', unit: 'ครั้ง/นาที', decimals: 0, band: [60, 100], disease: null,
+        evaluate: function (v) {
+          if (v > 110 || v < 45) return { level: 'risk', points: 8, note: 'ชีพจรผิดจังหวะจากเกณฑ์มาก' };
+          if (v > 100 || v < 50) return { level: 'watch', points: 4, note: 'นอกเกณฑ์เล็กน้อย' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'fbs', maxPoints: 30, label: 'น้ำตาลในเลือด (FBS)', unit: 'mg/dl', decimals: 0, band: [70, 99], disease: 'diabetes',
+        evaluate: function (v) {
+          if (v >= 200) return { level: 'risk', points: 30, critical: true, note: 'น้ำตาลสูงมาก' };
+          if (v >= 126) return { level: 'risk', points: 20, note: 'อยู่ในเกณฑ์เบาหวาน' };
+          if (v >= 100) return { level: 'watch', points: 8, note: 'ภาวะก่อนเบาหวาน' };
+          if (v < 70) return { level: 'risk', points: 15, critical: true, note: 'น้ำตาลต่ำ เสี่ยงหน้ามืด/วูบ' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'cholesterol', maxPoints: 14, label: 'คอเลสเตอรอล', unit: 'mg/dl', decimals: 0, band: [0, 200], disease: 'cardiovascular',
+        evaluate: function (v) {
+          if (v >= 240) return { level: 'risk', points: 14, note: 'สูง' };
+          if (v >= 200) return { level: 'watch', points: 7, note: 'เริ่มสูง' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'triglyceride', maxPoints: 18, label: 'ไตรกลีเซอไรด์', unit: 'mg/dl', decimals: 0, band: [0, 150], disease: 'cardiovascular',
+        evaluate: function (v) {
+          if (v >= 500) return { level: 'risk', points: 18, note: 'สูงมาก เสี่ยงตับอ่อนอักเสบ' };
+          if (v >= 200) return { level: 'risk', points: 12, note: 'สูง' };
+          if (v >= 150) return { level: 'watch', points: 6, note: 'เริ่มสูง' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'sgot', maxPoints: 14, label: 'SGOT (ตับ)', unit: 'U/L', decimals: 0, band: [0, 40], disease: 'liver',
+        evaluate: function (v) {
+          if (v > 80) return { level: 'risk', points: 14, note: 'สูงกว่าเกณฑ์มาก' };
+          if (v > 40) return { level: 'watch', points: 7, note: 'สูงกว่าเกณฑ์' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'sgpt', maxPoints: 14, label: 'SGPT (ตับ)', unit: 'U/L', decimals: 0, band: [0, 40], disease: 'liver',
+        evaluate: function (v) {
+          if (v > 80) return { level: 'risk', points: 14, note: 'สูงกว่าเกณฑ์มาก' };
+          if (v > 40) return { level: 'watch', points: 7, note: 'สูงกว่าเกณฑ์' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'bun', maxPoints: 12, label: 'BUN (ไต)', unit: 'mg/dl', decimals: 0, band: [7, 20], disease: 'kidney',
+        evaluate: function (v) {
+          if (v > 26 || v < 5) return { level: 'risk', points: 12, note: 'ผิดปกติชัดเจน' };
+          if (v > 20) return { level: 'watch', points: 6, note: 'สูงกว่าเกณฑ์' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'cre', maxPoints: 20, label: 'Creatinine (ไต)', unit: 'mg/dl', decimals: 2, disease: 'kidney',
+        bandFor: function (rec) { return healthIsMale_(rec) ? [0.7, 1.3] : [0.5, 1.1]; },
+        evaluate: function (v, rec) {
+          const max = healthIsMale_(rec) ? 1.3 : 1.1;
+          if (v > max * 1.5) return { level: 'risk', points: 20, note: 'สูงกว่าเกณฑ์มาก' };
+          if (v > max) return { level: 'risk', points: 12, note: 'สูงกว่าเกณฑ์' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'hemoglobin', maxPoints: 18, label: 'ฮีโมโกลบิน (Hb)', unit: 'g/dl', decimals: 1, disease: 'anemia',
+        bandFor: function (rec) { return healthIsMale_(rec) ? [13, 17] : [12, 15]; },
+        evaluate: function (v, rec) {
+          const min = healthIsMale_(rec) ? 13 : 12;
+          if (v < min - 3) return { level: 'risk', points: 18, critical: true, note: 'ซีดมาก เสี่ยงหน้ามืด' };
+          if (v < min) return { level: 'watch', points: 8, note: 'ต่ำกว่าเกณฑ์ (ภาวะซีด)' };
+          return { level: 'normal', points: 0 };
+        }
+      },
+      {
+        key: 'wbc', maxPoints: 10, label: 'เม็ดเลือดขาว (WBC)', unit: '/µL', decimals: 0, band: [4000, 10000], disease: null,
+        evaluate: function (v) {
+          if (v > 15000 || v < 3000) return { level: 'risk', points: 10, note: 'ผิดปกติชัดเจน' };
+          if (v > 10000 || v < 4000) return { level: 'watch', points: 5, note: 'นอกเกณฑ์เล็กน้อย' };
+          return { level: 'normal', points: 0 };
+        }
+      }
+    ];
+
+    function healthRuleBand_(rule, record) {
+      return rule.bandFor ? rule.bandFor(record) : rule.band;
+    }
+
+    /* ---------- นิยามกลุ่มโรค: ทำไมถึงเสี่ยง / กระทบการขับรถอย่างไร / ทำอะไรได้บ้าง ---------- */
+    const HEALTH_DISEASE_DEF_ = {
+      diabetes: {
+        name: 'เบาหวาน / ภาวะน้ำตาลในเลือดผิดปกติ',
+        icon: '🍭',
+        why: 'ระดับน้ำตาลในเลือดหลังอดอาหารสูงหรือต่ำกว่าเกณฑ์',
+        driving: 'น้ำตาลสูงมากหรือต่ำเกินไปทำให้ง่วง อ่อนเพลีย ตาพร่า หน้ามืด หรือวูบหมดสติระหว่างขับรถได้ และระยะยาวทำให้ปลายประสาทชา รับรู้แป้นเบรก/คันเร่งได้ช้าลง',
+        advice: [
+          'ลดเครื่องดื่มหวาน น้ำอัดลม ชานมเย็น กาแฟใส่น้ำตาล — เปลี่ยนเป็นน้ำเปล่าระหว่างวิ่งงาน',
+          'ลดข้าว/แป้งขัดสีลงประมาณหนึ่งในสามของที่เคยกิน เพิ่มผักในทุกมื้อ',
+          'พกอาหารว่างที่ไม่หวานจัดไว้ในรถ ไม่ปล่อยให้ท้องว่างนานจนหน้ามืด',
+          'ถ้าค่า FBS ตั้งแต่ 126 ขึ้นไป ควรพบแพทย์เพื่อตรวจยืนยันและวางแผนรักษา ไม่รอถึงปีหน้า'
+        ]
+      },
+      hypertension: {
+        name: 'ความดันโลหิตสูง',
+        icon: '🩸',
+        why: 'ค่าความดันตัวบน/ตัวล่างสูงกว่าเกณฑ์',
+        driving: 'ความดันที่สูงมากสัมพันธ์กับอาการปวดหัว มึนศีรษะ และความเสี่ยงเส้นเลือดสมอง/หัวใจเฉียบพลันขณะปฏิบัติงาน ซึ่งอันตรายมากหากเกิดระหว่างขับรถ',
+        advice: [
+          'ลดอาหารเค็ม น้ำปลา ซอส บะหมี่กึ่งสำเร็จรูป และของดองที่กินบ่อยระหว่างเดินทาง',
+          'เดินเร็วหรือออกแรงต่อเนื่องประมาณ 30 นาที สัปดาห์ละ 5 วัน (แบ่งเป็นช่วงสั้นๆ ได้)',
+          'งด/ลดบุหรี่และเครื่องดื่มแอลกอฮอล์ และนอนให้ได้ 7-8 ชั่วโมง',
+          'วัดความดันซ้ำที่คลินิกหรือ รพ.ใกล้บ้าน และถ้าได้รับยาแล้วต้องกินต่อเนื่อง ห้ามหยุดเอง'
+        ]
+      },
+      cardiovascular: {
+        name: 'ไขมันในเลือดสูง / เสี่ยงโรคหลอดเลือดหัวใจและสมอง',
+        icon: '❤️',
+        why: 'คอเลสเตอรอลหรือไตรกลีเซอไรด์สูงกว่าเกณฑ์',
+        driving: 'ไขมันสะสมในหลอดเลือดเพิ่มโอกาสเกิดหัวใจขาดเลือดหรือหลอดเลือดสมองแบบเฉียบพลัน ซึ่งหากเกิดขณะขับรถจะควบคุมรถไม่ได้',
+        advice: [
+          'เลี่ยงของทอด หมูสามชั้น เครื่องในสัตว์ และกะทิข้น เปลี่ยนเป็นต้ม นึ่ง ย่าง',
+          'เพิ่มปลา ถั่ว ผัก ผลไม้ไม่หวานจัด อย่างน้อยวันละ 1-2 มื้อ',
+          'ถ้าไตรกลีเซอไรด์สูง ให้ลดน้ำตาลและแอลกอฮอล์ก่อนเป็นอันดับแรก เพราะมีผลโดยตรงที่สุด',
+          'ตรวจซ้ำใน 3-6 เดือนเพื่อดูว่าการปรับอาหารได้ผลหรือไม่'
+        ]
+      },
+      liver: {
+        name: 'ภาวะตับอักเสบ / ไขมันพอกตับ',
+        icon: '🧪',
+        why: 'ค่าเอนไซม์ตับ (SGOT/SGPT) สูงกว่าเกณฑ์',
+        driving: 'ตับทำงานผิดปกติทำให้อ่อนเพลียเรื้อรัง ง่วงกลางวัน และสมาธิลดลง ซึ่งเพิ่มความเสี่ยงหลับในระหว่างขับรถทางไกล',
+        advice: [
+          'งดเครื่องดื่มแอลกอฮอล์อย่างน้อย 3 เดือน แล้วตรวจค่าตับซ้ำ',
+          'ลดน้ำหนักลงประมาณ 5-10% ของน้ำหนักตัว ช่วยลดไขมันพอกตับได้ชัดเจน',
+          'ไม่ซื้อยาชุด ยาแก้ปวด หรืออาหารเสริม/ยาสมุนไพรกินเองต่อเนื่อง เพราะมีผลต่อตับโดยตรง',
+          'ถ้าค่าสูงเกินสองเท่าของเกณฑ์ ควรพบแพทย์เพื่อหาสาเหตุ (ไวรัสตับอักเสบ ไขมัน หรือยา)'
+        ]
+      },
+      kidney: {
+        name: 'การทำงานของไตผิดปกติ',
+        icon: '💧',
+        why: 'ค่า BUN หรือ Creatinine อยู่นอกเกณฑ์',
+        driving: 'ไตเสื่อมระยะแรกมักไม่มีอาการ แต่ทำให้อ่อนเพลีย บวม และความดันควบคุมยากขึ้น ซึ่งกระทบความพร้อมในการขับรถทางไกล',
+        advice: [
+          'ดื่มน้ำเปล่าให้พอตลอดวัน ไม่กลั้นปัสสาวะนานระหว่างวิ่งงาน',
+          'ลดอาหารเค็มจัดและเลี่ยงยาแก้ปวดกลุ่ม NSAIDs ที่ซื้อกินเองบ่อยๆ',
+          'ถ้ามีความดันสูงหรือน้ำตาลสูงร่วมด้วย ต้องคุมสองอย่างนี้ให้ดี เพราะเป็นสาเหตุหลักของไตเสื่อม',
+          'พบแพทย์เพื่อตรวจยืนยันการทำงานของไต (eGFR) และตรวจปัสสาวะซ้ำ'
+        ]
+      },
+      anemia: {
+        name: 'ภาวะโลหิตจาง (ซีด)',
+        icon: '🩹',
+        why: 'ค่าฮีโมโกลบินต่ำกว่าเกณฑ์ตามเพศ',
+        driving: 'เลือดขนส่งออกซิเจนได้น้อยลง ทำให้เหนื่อยง่าย ใจสั่น หน้ามืดเวลาลุกยืน และเสี่ยงวูบขณะทำงานหรือขับรถ',
+        advice: [
+          'กินอาหารที่มีธาตุเหล็ก เช่น เนื้อแดง ตับ ไข่ ผักใบเขียวเข้ม คู่กับผลไม้รสเปรี้ยวเพื่อดูดซึมดีขึ้น',
+          'เลี่ยงดื่มชา/กาแฟพร้อมมื้ออาหาร เพราะลดการดูดซึมธาตุเหล็ก',
+          'พบแพทย์เพื่อหาสาเหตุของภาวะซีด ไม่ควรซื้อยาบำรุงเลือดกินเองระยะยาว'
+        ]
+      },
+      metabolic: {
+        name: 'น้ำหนักเกิน / กลุ่มอาการเมตาบอลิก',
+        icon: '⚖️',
+        why: 'ค่าดัชนีมวลกาย (BMI) อยู่นอกเกณฑ์',
+        driving: 'น้ำหนักเกินสัมพันธ์กับการนอนกรนและภาวะหยุดหายใจขณะหลับ ทำให้นอนไม่เต็มอิ่มและง่วงระหว่างวัน เป็นสาเหตุสำคัญของการหลับใน',
+        advice: [
+          'ตั้งเป้าลดทีละน้อยแบบที่ทำได้จริง เช่น ลดประมาณ 5% ของน้ำหนักตัวใน 3-6 เดือน',
+          'เดินหรือยืดเส้นทุกครั้งที่จอดพัก แทนการนั่งอยู่ในรถตลอด',
+          'ถ้ามีอาการกรนเสียงดัง สะดุ้งตื่นกลางดึก หรือง่วงมากตอนกลางวัน ควรปรึกษาแพทย์เรื่องภาวะหยุดหายใจขณะหลับ'
+        ]
+      }
+    };
+
+    /* ---------- หมวดตรวจที่ถ้าผิดปกติแล้วกระทบการขับรถโดยตรง ---------- */
+    const HEALTH_FIT_CATEGORY_FLAGS_ = [
+      { key: 'visionStatus', label: 'สายตา', text: 'ผลตรวจสายตาผิดปกติ — มีผลต่อการมองป้าย ระยะห่าง และการขับรถกลางคืน ควรตรวจวัดสายตาและใช้แว่นที่เหมาะสม' },
+      { key: 'hearingStatus', label: 'การได้ยิน', text: 'ผลตรวจการได้ยินผิดปกติ — อาจไม่ได้ยินเสียงแตร เสียงสัญญาณ หรือเสียงผิดปกติของรถ ควรพบแพทย์อาชีวเวชศาสตร์' },
+      { key: 'ekgStatus', label: 'คลื่นหัวใจ', text: 'คลื่นไฟฟ้าหัวใจผิดปกติ — ต้องให้แพทย์ประเมินก่อนมอบหมายงานขับรถทางไกลหรือทำงานต่อเนื่องนานๆ' },
+      { key: 'lungStatus', label: 'สมรรถภาพปอด', text: 'สมรรถภาพปอดผิดปกติ — เหนื่อยง่ายขึ้นเมื่อทำงานหนักหรือขนถ่ายสินค้า ควรพบแพทย์' },
+      { key: 'drugScreenStatus', label: 'สารเสพติด', text: 'ผลตรวจสารเสพติดผิดปกติ — ต้องดำเนินการตามระเบียบบริษัทและกฎหมายทันที ห้ามมอบหมายงานขับรถจนกว่าจะตรวจซ้ำและได้ข้อสรุป' }
+    ];
+
+    /* ---------- ตัวประเมินหลัก: record 1 ปี -> ผลวิเคราะห์ทั้งหมด ---------- */
+    function healthAssessRecord_(record) {
+      const factors = [];
+      let rawScore = 0;   // คะแนนดิบที่ได้จริง
+      let maxScore = 0;   // คะแนนเต็มของ "เฉพาะรายการที่ตรวจในปีนั้น" — ปีที่ตรวจไม่ครบจะได้ไม่เสียเปรียบ
+      let hasCritical = false;
+      const diseaseHits = {};
+
+      HEALTH_RISK_RULES_.forEach(function (rule) {
+        const v = healthNum_(record[rule.key]);
+        if (v === null) return;
+        const res = rule.evaluate(v, record) || { level: 'normal', points: 0 };
+        const factor = {
+          key: rule.key, label: rule.label, unit: rule.unit || '', value: v,
+          level: res.level, points: res.points || 0, note: res.note || '', critical: !!res.critical
+        };
+        factors.push(factor);
+        rawScore += factor.points;
+        maxScore += rule.maxPoints || 10;
+        if (factor.critical) hasCritical = true;
+        if (rule.disease && res.level !== 'normal') {
+          if (!diseaseHits[rule.disease]) diseaseHits[rule.disease] = { level: 'watch', evidence: [] };
+          diseaseHits[rule.disease].evidence.push(factor);
+          if (res.level === 'risk') diseaseHits[rule.disease].level = 'risk';
+        }
+      });
+
+      // หมวดตรวจที่ระบุผลเป็นข้อความ ('ผิดปกติ'/'เฝ้าระวัง') ก็นับรวมในคะแนนด้วย
+      HEALTH_CATEGORY_FIELDS_.forEach(function (f) {
+        const t = String(record[f.key] || '').trim();
+        if (!t) return;
+        maxScore += 8;
+        if (t === 'ผิดปกติ') rawScore += 8;
+        else if (t === 'เฝ้าระวัง') rawScore += 4;
+      });
+
+      // แปลงเป็น 0-100 เพื่อให้เทียบข้ามปี/ข้ามคนได้ แม้จำนวนรายการตรวจไม่เท่ากัน
+      let score = maxScore ? Math.round(rawScore * 100 / maxScore) : 0;
+      if (score > 100) score = 100;
+      let level = 'low';
+      if (hasCritical || score >= 40) level = 'high';
+      else if (score >= 15) level = 'medium';
+
+      const diseases = Object.keys(diseaseHits).map(function (key) {
+        const def = HEALTH_DISEASE_DEF_[key];
+        return {
+          key: key, name: def.name, icon: def.icon, why: def.why,
+          driving: def.driving, advice: def.advice,
+          level: diseaseHits[key].level,
+          evidence: diseaseHits[key].evidence
+        };
+      }).sort(function (a, b) { return (b.level === 'risk' ? 1 : 0) - (a.level === 'risk' ? 1 : 0); });
+
+      // ผลกระทบต่อการขับรถ: รวมจากค่าที่ critical + หมวดตรวจที่ผิดปกติ
+      const driving = [];
+      factors.filter(function (f) { return f.critical; }).forEach(function (f) {
+        driving.push({
+          severity: 'high',
+          title: f.label + ' ' + f.value + ' ' + f.unit,
+          text: f.note + ' — ควรให้แพทย์ประเมินความพร้อมก่อนมอบหมายงานขับรถทางไกล'
+        });
+      });
+      HEALTH_FIT_CATEGORY_FLAGS_.forEach(function (flag) {
+        const t = String(record[flag.key] || '').trim();
+        if (t && t !== 'ปกติ') {
+          driving.push({ severity: t === 'ผิดปกติ' ? 'high' : 'medium', title: flag.label + ': ' + t, text: flag.text });
+        }
+      });
+      const sleepyRisk = diseaseHits.liver || diseaseHits.metabolic || diseaseHits.anemia;
+      if (!driving.length && sleepyRisk) {
+        driving.push({
+          severity: 'medium',
+          title: 'เฝ้าระวังอาการง่วง/อ่อนเพลียระหว่างขับรถ',
+          text: 'ผลตรวจกลุ่มที่ทำให้อ่อนเพลียง่ายผิดปกติ ควรพักทุก 2 ชั่วโมง นอนให้พอก่อนออกงาน และแจ้งหัวหน้างานทันทีถ้ารู้สึกง่วงผิดปกติ'
+        });
+      }
+
+      return { score: score, level: level, factors: factors, diseases: diseases, driving: driving };
+    }
+
+    function healthRiskLevelText_(level) {
+      if (level === 'high') return 'ความเสี่ยงสูง';
+      if (level === 'medium') return 'ความเสี่ยงปานกลาง';
+      return 'ความเสี่ยงต่ำ';
+    }
+
+    /* =========================================================================
+       UI 1: ดัชนีความเสี่ยงรวม
+       ========================================================================= */
+    function healthRiskPanelHtml_(assess, record) {
+      const abnormal = assess.factors.filter(function (f) { return f.level !== 'normal'; });
+      const pct = Math.max(4, Math.min(100, assess.score));
+
+      let chips = abnormal.length
+        ? abnormal.map(function (f) {
+            return '<span class="hr-chip hr-' + f.level + '">' + escapeHtml(f.label) + ' ' +
+              escapeHtml(String(f.value)) + (f.unit ? ' ' + escapeHtml(f.unit) : '') + '</span>';
+          }).join('')
+        : '<span class="hr-chip hr-normal">ค่าตรวจหลักอยู่ในเกณฑ์ทั้งหมด</span>';
+
+      return '<div class="panel hr-score-panel hr-level-' + assess.level + '">' +
+        '<div class="panel-title"><h3>ดัชนีความเสี่ยงสุขภาพรวม (ปี ' + escapeHtml(String(record.year)) + ')</h3></div>' +
+        '<div class="hr-score-head">' +
+          '<div class="hr-score-num">' + assess.score + '<span>/100</span></div>' +
+          '<div class="hr-score-meta">' +
+            '<span class="hr-level-badge hr-' + assess.level + '">' + healthRiskLevelText_(assess.level) + '</span>' +
+            '<p class="hr-score-hint">คิดจากค่าตรวจที่อยู่นอกเกณฑ์และผลตรวจรายหมวด ยิ่งคะแนนสูงยิ่งควรรีบดูแล</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="hr-score-bar"><div class="hr-score-fill" style="width:' + pct + '%;"></div></div>' +
+        '<div class="hr-score-scale"><span>ต่ำ (0-14)</span><span>ปานกลาง (15-39)</span><span>สูง (40+)</span></div>' +
+        '<div class="hr-chips">' + chips + '</div>' +
+      '</div>';
+    }
+
+    /* =========================================================================
+       UI 2: แนวโน้มย้อนหลัง 3-5 ปี (ตาราง + กราฟเส้น SVG วาดเอง ไม่ใช้ไลบรารี)
+       ========================================================================= */
+    let healthTrendMetricKey_ = 'bmi';
+
+    /** คืนข้อมูลย้อนหลังไม่เกิน 5 ปี เรียงจากปีเก่า -> ปีใหม่ (ข้อมูลจาก backend เรียงปีใหม่ก่อน) */
+    function healthTrendSeries_(key) {
+      return healthCurrentRecords_
+        .map(function (r) { return { year: Number(r.year), value: healthNum_(r[key]), record: r }; })
+        .filter(function (p) { return !isNaN(p.year); })
+        .sort(function (a, b) { return a.year - b.year; })
+        .slice(-5);
+    }
+
+    function healthTrendChartSvg_(points, rule, record) {
+      const valued = points.filter(function (p) { return p.value !== null; });
+      if (valued.length < 2) {
+        return '<div class="empty-state" style="margin:0;">ยังมีข้อมูลไม่พอวาดกราฟ (ต้องมีอย่างน้อย 2 ปี)</div>';
+      }
+
+      const W = 640, H = 240, padL = 52, padR = 16, padT = 18, padB = 34;
+      const band = healthRuleBand_(rule, record);
+      const vals = valued.map(function (p) { return p.value; });
+      let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      if (band) { lo = Math.min(lo, band[0]); hi = Math.max(hi, band[1]); }
+      const pad = (hi - lo) * 0.18 || (hi * 0.1) || 1;
+      lo -= pad; hi += pad;
+      if (lo < 0) lo = 0;
+
+      const x = function (i) { return padL + (points.length === 1 ? 0 : i * (W - padL - padR) / (points.length - 1)); };
+      const y = function (v) { return padT + (hi - v) * (H - padT - padB) / (hi - lo); };
+      const fmt = function (v) { return rule.decimals ? Number(v).toFixed(rule.decimals) : Math.round(v); };
+
+      let svg = '<svg class="hr-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="กราฟแนวโน้ม' + escapeHtml(rule.label) + '">';
+
+      // แถบเกณฑ์ปกติ
+      if (band) {
+        const yTop = Math.max(padT, y(band[1]));
+        const yBot = Math.min(H - padB, y(band[0]));
+        svg += '<rect x="' + padL + '" y="' + yTop + '" width="' + (W - padL - padR) + '" height="' + Math.max(1, yBot - yTop) + '" class="hr-chart-band"></rect>' +
+          '<text x="' + (padL + 6) + '" y="' + (yTop + 13) + '" class="hr-chart-bandlabel">เกณฑ์ปกติ ' + fmt(band[0]) + '-' + fmt(band[1]) + '</text>';
+      }
+
+      // แกน + เส้นกริด 3 เส้น
+      [0, 0.5, 1].forEach(function (t) {
+        const v = lo + (hi - lo) * t;
+        const yy = y(v);
+        svg += '<line x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '" class="hr-chart-grid"></line>' +
+          '<text x="' + (padL - 8) + '" y="' + (yy + 4) + '" class="hr-chart-axis" text-anchor="end">' + fmt(v) + '</text>';
+      });
+
+      // เส้นแนวโน้ม (ต่อเฉพาะจุดที่มีค่า)
+      const line = points.map(function (p, i) { return p.value === null ? null : x(i) + ',' + y(p.value); })
+        .filter(function (s) { return s !== null; }).join(' ');
+      svg += '<polyline points="' + line + '" class="hr-chart-line"></polyline>';
+
+      // จุด + ค่ากำกับ + ปีที่แกนล่าง
+      points.forEach(function (p, i) {
+        svg += '<text x="' + x(i) + '" y="' + (H - 10) + '" class="hr-chart-axis" text-anchor="middle">' + escapeHtml(String(p.year)) + '</text>';
+        if (p.value === null) return;
+        const st = rule.evaluate(p.value, p.record) || { level: 'normal' };
+        svg += '<circle cx="' + x(i) + '" cy="' + y(p.value) + '" r="6" class="hr-chart-dot hr-dot-' + st.level + '"></circle>' +
+          '<text x="' + x(i) + '" y="' + (y(p.value) - 13) + '" class="hr-chart-value" text-anchor="middle">' + fmt(p.value) + '</text>';
+      });
+
+      svg += '</svg>';
+      return svg;
+    }
+
+    function healthTrendPanelHtml_(record) {
+      if (healthCurrentRecords_.length < 2) return '';
+      const rule = HEALTH_RISK_RULES_.find(function (r) { return r.key === healthTrendMetricKey_; }) || HEALTH_RISK_RULES_[0];
+
+      const chips = HEALTH_RISK_RULES_.map(function (r) {
+        return '<button type="button" class="hr-metric-chip' + (r.key === rule.key ? ' active' : '') + '" onclick="healthSelectTrendMetric_(\'' + r.key + '\')">' + escapeHtml(r.label) + '</button>';
+      }).join('');
+
+      // ตารางแนวโน้มทุกค่า ย้อนหลังไม่เกิน 5 ปี
+      const years = healthTrendSeries_('bmi').map(function (p) { return p.year; });
+      let table = '<div class="grid-scroll"><table class="report-table hr-trend-table"><thead><tr><th>รายการ</th>' +
+        years.map(function (yr) { return '<th>' + escapeHtml(String(yr)) + '</th>'; }).join('') + '<th>แนวโน้ม</th></tr></thead><tbody>';
+
+      HEALTH_RISK_RULES_.forEach(function (r) {
+        const series = healthTrendSeries_(r.key);
+        const valued = series.filter(function (p) { return p.value !== null; });
+        let cells = series.map(function (p) {
+          if (p.value === null) return '<td>-</td>';
+          const st = r.evaluate(p.value, p.record) || { level: 'normal' };
+          const shown = r.decimals ? Number(p.value).toFixed(r.decimals) : p.value;
+          return '<td><span class="hr-cell hr-' + st.level + '">' + escapeHtml(String(shown)) + '</span></td>';
+        }).join('');
+
+        let trend = '<td>-</td>';
+        if (valued.length >= 2) {
+          const first = valued[0].value, last = valued[valued.length - 1].value;
+          const diff = last - first;
+          const shownDiff = (diff > 0 ? '+' : '') + (r.decimals ? diff.toFixed(r.decimals) : Math.round(diff));
+          const arrow = Math.abs(diff) < (r.decimals ? 0.05 : 0.5)
+            ? '‒'
+            : (diff > 0 ? '<span class="health-trend-arrow up">▲</span>' : '<span class="health-trend-arrow down">▼</span>');
+          trend = '<td>' + arrow + ' ' + escapeHtml(shownDiff) + '</td>';
+        }
+        table += '<tr><td>' + escapeHtml(r.label) + '</td>' + cells + trend + '</tr>';
+      });
+      table += '</tbody></table></div>';
+
+      return '<div class="panel">' +
+        '<div class="panel-title"><h3>แนวโน้มย้อนหลัง ' + years.length + ' ปี</h3></div>' +
+        '<p class="panel-hint">แตะชื่อค่าตรวจเพื่อดูกราฟของค่านั้น แถบสีเขียวในกราฟคือช่วงเกณฑ์ปกติ</p>' +
+        '<div class="hr-metric-chips">' + chips + '</div>' +
+        '<div id="healthTrendChart" class="hr-chart-wrap">' + healthTrendChartSvg_(healthTrendSeries_(rule.key), rule, record) + '</div>' +
+        table +
+      '</div>';
+    }
+
+    function healthSelectTrendMetric_(key) {
+      healthTrendMetricKey_ = key;
+      const record = healthCurrentRecords_[healthCurrentIndex_];
+      const rule = HEALTH_RISK_RULES_.find(function (r) { return r.key === key; });
+      const wrap = document.getElementById('healthTrendChart');
+      if (!wrap || !rule || !record) return;
+      wrap.innerHTML = healthTrendChartSvg_(healthTrendSeries_(key), rule, record);
+      const chips = document.querySelectorAll('.hr-metric-chip');
+      for (let i = 0; i < chips.length; i++) {
+        chips[i].classList.toggle('active', chips[i].textContent === rule.label);
+      }
+    }
+
+    /* =========================================================================
+       UI 3: โรคที่ต้องเฝ้าระวัง + ผลกระทบต่อการขับรถ + คำแนะนำปรับพฤติกรรม
+       ========================================================================= */
+    function healthDiseasePanelHtml_(assess) {
+      if (!assess.diseases.length) {
+        return '<div class="panel">' +
+          '<div class="panel-title"><h3>โรคที่ต้องเฝ้าระวัง</h3></div>' +
+          '<div class="hr-allclear">✅ ค่าตรวจหลักในปีนี้ยังไม่พบสัญญาณที่ต้องเฝ้าระวังเป็นพิเศษ — รักษาพฤติกรรมแบบนี้ไว้และตรวจสุขภาพต่อเนื่องทุกปี</div>' +
+        '</div>';
+      }
+
+      const cards = assess.diseases.map(function (d) {
+        const evidence = d.evidence.map(function (f) {
+          return '<span class="hr-chip hr-' + f.level + '">' + escapeHtml(f.label) + ' ' + escapeHtml(String(f.value)) +
+            (f.note ? ' (' + escapeHtml(f.note) + ')' : '') + '</span>';
+        }).join('');
+        return '<div class="hr-disease-card hr-' + d.level + '">' +
+          '<div class="hr-disease-head">' +
+            '<span class="hr-disease-icon">' + d.icon + '</span>' +
+            '<div>' +
+              '<div class="hr-disease-name">' + escapeHtml(d.name) + '</div>' +
+              '<div class="hr-disease-why">' + escapeHtml(d.why) + '</div>' +
+            '</div>' +
+            '<span class="hr-level-badge hr-' + (d.level === 'risk' ? 'high' : 'medium') + '">' +
+              (d.level === 'risk' ? 'ต้องดูแล' : 'เฝ้าระวัง') + '</span>' +
+          '</div>' +
+          '<div class="hr-chips">' + evidence + '</div>' +
+          '<div class="hr-disease-impact"><b>ผลต่อการปฏิบัติงาน:</b> ' + escapeHtml(d.driving) + '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="panel">' +
+        '<div class="panel-title"><h3>โรคที่ต้องเฝ้าระวัง (ประเมินจากค่าผลตรวจ)</h3></div>' +
+        '<p class="panel-hint">เป็นการเทียบค่ากับเกณฑ์อ้างอิงทั่วไปเพื่อเตือนให้ดูแลตัวเอง ไม่ใช่การวินิจฉัยว่าเป็นโรคแล้ว</p>' +
+        cards +
+      '</div>';
+    }
+
+    function healthDrivingPanelHtml_(assess) {
+      if (!assess.driving.length) return '';
+      const items = assess.driving.map(function (d) {
+        return '<div class="hr-fit-item hr-' + d.severity + '">' +
+          '<div class="hr-fit-title">' + (d.severity === 'high' ? '🚨' : '⚠️') + ' ' + escapeHtml(d.title) + '</div>' +
+          '<div class="hr-fit-text">' + escapeHtml(d.text) + '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="panel hr-fit-panel">' +
+        '<div class="panel-title"><h3>ผลกระทบต่อการปฏิบัติงาน (Fit to Drive)</h3></div>' +
+        '<p class="panel-hint">ข้อมูลนี้ใช้เพื่อความปลอดภัยหน้างาน การตัดสินความพร้อมในการขับรถต้องให้แพทย์เป็นผู้ประเมินเท่านั้น</p>' +
+        items +
+      '</div>';
+    }
+
+    function healthAdvicePanelHtml_(assess) {
+      if (!assess.diseases.length) return '';
+      const blocks = assess.diseases.map(function (d) {
+        return '<div class="hr-advice-block">' +
+          '<div class="hr-advice-head">' + d.icon + ' ' + escapeHtml(d.name) + '</div>' +
+          '<ul class="hr-advice-list">' +
+            d.advice.map(function (a) { return '<li>' + escapeHtml(a) + '</li>'; }).join('') +
+          '</ul>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="panel">' +
+        '<div class="panel-title"><h3>สิ่งที่ทำได้เลยตั้งแต่วันนี้</h3></div>' +
+        '<p class="panel-hint">เลือกทำทีละข้อที่ทำได้จริงก่อน แล้วดูผลอีกครั้งตอนตรวจปีหน้า</p>' +
+        blocks +
+      '</div>';
     }
 
     function selectHealthYear_(index) {

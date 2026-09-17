@@ -3,7 +3,7 @@
 // สำคัญ: ไม่แตะ request ที่เป็น POST เลย (คำขอที่ยิงไปหา Apps Script API ทั้งหมดเป็น POST)
 // เพื่อไม่ให้ไปยุ่งกับการเชื่อมต่อฐานข้อมูลจริงโดยไม่ตั้งใจ
 
-const CACHE_NAME = 'kjt-hub-shell-v12'; // เพิ่มหน้า "นำเข้าผลตรวจสุขภาพ" ใน Admin/Supervisor (v12) — บังคับล้าง cache เดิมทุกเครื่อง
+const CACHE_NAME = 'kjt-hub-shell-v13'; // เพิ่มหน้า "นำเข้าผลตรวจสุขภาพ" ใน Admin/Supervisor (v13) + วิเคราะห์สุขภาพเชิงลึก — บังคับล้าง cache เดิมทุกเครื่อง
 const APP_SHELL = [
   './',
   './index.html',
