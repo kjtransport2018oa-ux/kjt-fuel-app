@@ -1784,9 +1784,9 @@ function handlePwaInstallClick_() {
 
     const MAINT_STATUS_META_ = {
       Pending:    { label: 'รอซ่อม',      cls: 'st-pending',  next: 'InProgress', nextLabel: '▶ เริ่มซ่อม' },
-      InProgress: { label: 'กำลังซ่อม',   cls: 'st-progress', next: 'Completed',  nextLabel: '✔ ซ่อมเสร็จ' },
-      Completed:  { label: 'ซ่อมเสร็จ',   cls: 'st-done',     next: 'HandedOver', nextLabel: '🔑 ส่งมอบรถ' },
-      HandedOver: { label: 'ส่งมอบแล้ว',  cls: 'st-handed',   next: '',           nextLabel: '' },
+      InProgress: { label: 'กำลังซ่อม',   cls: 'st-progress', next: 'Completed',  nextLabel: '✔ ซ่อมเสร็จแล้ว' },
+      Completed:  { label: 'ซ่อมเสร็จ',   cls: 'st-done',     next: '',           nextLabel: '' }, // เฟส 1: ปิดงานเลย ไม่มีปุ่มส่งมอบแยกแล้ว
+      HandedOver: { label: 'ส่งมอบแล้ว',  cls: 'st-handed',   next: '',           nextLabel: '' }, // เหลือไว้แสดงงานเก่าเฉยๆ
       Cancelled:  { label: 'ยกเลิกแล้ว',  cls: 'st-cancel',   next: '',           nextLabel: '' }
     };
 
@@ -1855,14 +1855,10 @@ function handlePwaInstallClick_() {
         return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>';
       }).join('');
 
-      const sevCards = [1, 2, 3].map(function (n) {
-        const m = MAINT_SEVERITY_META_[n];
-        return '<button type="button" class="maint-sev-card ' + m.cls + '" id="maintSev' + n + '" onclick="maintSelectSeverity_(' + n + ')">' +
-          '<div class="msc-top"><span class="msc-icon">' + m.icon + '</span>' +
-            '<span class="msc-time">≈ ' + maintMinutesText_(data.severityMinutes[n]) + (n === 3 ? ' ขึ้นไป' : '') + '</span></div>' +
-          '<div class="msc-label">' + escapeHtml(m.label) + '</div>' +
-          '<div class="msc-hint">' + escapeHtml(m.hint) + '</div>' +
-        '</button>';
+        const catOptions = data.categories.map(function (c) {
+        const sev = data.categorySeverity[c] || 2;
+        const icon = MAINT_SEVERITY_META_[sev].icon;
+        return '<option value="' + escapeHtml(c) + '">' + icon + ' ' + escapeHtml(c) + '</option>';
       }).join('');
 
       return '<div class="panel">' +
@@ -1878,7 +1874,8 @@ function handlePwaInstallClick_() {
         '</div>' +
 
         '<div class="field"><label>หมวดหมู่อาการเสีย</label>' +
-          '<select id="maintCategory"><option value="">— เลือกหมวดหมู่ —</option>' + catOptions + '</select>' +
+          '<select id="maintCategory" onchange="maintOnCategoryChange_()"><option value="">— เลือกหมวดหมู่ —</option>' + catOptions + '</select>' +
+          '<div id="maintSevBadge" class="maint-sev-badge" style="display:none;"></div>' +
         '</div>' +
 
         '<div class="field"><label>รายละเอียดอาการที่พบ</label>' +
@@ -1891,7 +1888,7 @@ function handlePwaInstallClick_() {
 
         '<div class="field"><label>วันที่ต้องการเข้าซ่อม</label>' +
           '<div id="maintDayPicker" class="maint-day-picker">' +
-            '<div class="empty-state" style="margin:0;">เลือกระดับความรุนแรงก่อน ระบบจะแสดงวันที่ที่คิวว่างพอ</div>' +
+            '<div class="empty-state" style="margin:0;">เลือกหมวดหมู่อาการก่อน</div>' +
           '</div>' +
         '</div>' +
 
@@ -1906,15 +1903,23 @@ function handlePwaInstallClick_() {
       other.style.display = sel.value === '__other__' ? 'block' : 'none';
     }
 
-    function maintSelectSeverity_(n) {
-      maintSeverity_ = n;
+    function maintOnCategoryChange_() {
+      const cat = document.getElementById('maintCategory').value;
+      const badge = document.getElementById('maintSevBadge');
       maintSelectedDate_ = '';
-      [1, 2, 3].forEach(function (i) {
-        const btn = document.getElementById('maintSev' + i);
-        if (btn) btn.classList.toggle('active', i === n);
-      });
+      if (!cat || !maintFormData_) {
+        maintSeverity_ = 0;
+      badge.style.display = 'none';
       maintRenderDayPicker_();
+      return;
     }
+      maintSeverity_ = maintFormData_.categorySeverity[cat] || 2;
+      const m = MAINT_SEVERITY_META_[maintSeverity_];
+      badge.style.display = 'block';
+      badge.className = 'maint-sev-badge ' + m.cls;
+      badge.innerHTML = m.icon + ' ' + escapeHtml(m.label) + ' · ประเมิน ≈ ' + maintMinutesText_(maintFormData_.severityMinutes[maintSeverity_]) + (maintSeverity_ === 3 ? ' ขึ้นไป' : '');
+      maintRenderDayPicker_();
+}
 
     /** วาดชิปวันที่: วันที่เหลือเวลาไม่พอจะกดไม่ได้ ยกเว้นงานระดับ 3 ที่แทรกฉุกเฉินได้ */
     function maintRenderDayPicker_() {
