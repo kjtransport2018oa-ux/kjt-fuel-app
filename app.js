@@ -2045,16 +2045,21 @@ function handlePwaInstallClick_() {
        ========================================================================= */
     function renderMaintenanceCalendarPage_(targetId, backOnclick) {
       maintCalBack_ = backOnclick || '';
-      if (!maintCalAnchor_) maintCalAnchor_ = maintTodayISO_();
       const el = document.getElementById(targetId || 'mainContent');
       if (!el) return;
       el.innerHTML =
         (maintCalBack_ ? '<button type="button" class="back-link" onclick="' + maintCalBack_ + '">← กลับ</button>' : '') +
         '<div id="maintCalBody"><div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดตารางงานซ่อม...</p></div></div>';
+      // เปิดหน้าครั้งแรก (หรือกลับมาเปิดใหม่) ให้ "วันนี้" ยึดตามนาฬิกาของเซิร์ฟเวอร์เสมอ ไม่ใช่เครื่องผู้ใช้ —
+      // กันปฏิทินไปเปิดวันผิดเพราะเครื่อง/เบราว์เซอร์ตั้งเขตเวลาไม่ตรงกับ Apps Script แล้วมองไม่เห็นงานที่เพิ่งจอง
+      maintCalAnchor_ = '';
       maintLoadCalendar_();
     }
 
     function maintCalRange_() {
+      // ยังไม่รู้ว่า "วันนี้" ของเซิร์ฟเวอร์คือวันไหน (ครั้งแรกที่เปิดหน้า) — ส่ง from/to ว่างไปก่อน
+      // ให้ backend เป็นคนตัดสินแทน แล้วค่อย sync มาเก็บไว้ที่ maintCalAnchor_ ตอนได้ผลลัพธ์กลับมา
+      if (!maintCalAnchor_) return { from: '', to: '' };
       if (maintCalMode_ === 'day') return { from: maintCalAnchor_, to: maintCalAnchor_ };
       // รายสัปดาห์: เริ่มวันจันทร์ของสัปดาห์ที่ anchor อยู่
       const p = maintCalAnchor_.split('-');
@@ -2074,6 +2079,9 @@ function handlePwaInstallClick_() {
             body.innerHTML = '<div class="empty-state">' + escapeHtml((res && res.message) || 'โหลดไม่สำเร็จ') + '</div>';
             return;
           }
+          // sync "วันนี้" ให้ตรงกับเซิร์ฟเวอร์เสมอ — ถ้าตอนขอไปยังไม่ได้ระบุ from/to (เปิดหน้าครั้งแรก/กด "วันนี้")
+          // ตัว anchor จะถูกตั้งจาก res.todayISO ตรงนี้ แล้วค่อยเปลี่ยนโหมด/เลื่อนวันจากจุดนี้ต่อไป
+          if (!maintCalAnchor_) maintCalAnchor_ = res.todayISO;
           body.innerHTML = maintCalendarHtml_(res);
         })
         .withFailureHandler(function (err) {
@@ -2087,7 +2095,7 @@ function handlePwaInstallClick_() {
       maintCalAnchor_ = maintAddDays_(maintCalAnchor_, maintCalMode_ === 'day' ? step : step * 7);
       maintLoadCalendar_();
     }
-    function maintGoToday_() { maintCalAnchor_ = maintTodayISO_(); maintLoadCalendar_(); }
+    function maintGoToday_() { maintCalAnchor_ = ''; maintLoadCalendar_(); } // ให้เซิร์ฟเวอร์เป็นคนบอกว่า "วันนี้" คือวันไหน เหมือนตอนเปิดหน้าครั้งแรก
 
     function maintCalendarHtml_(res) {
       const byDay = {};
