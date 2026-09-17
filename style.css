@@ -949,3 +949,252 @@
       .hr-score-num { font-size: 36px; }
       .hr-chart-wrap { padding: 4px; }
     }
+
+    /* =======================================================================
+       โมดูลจองคิวซ่อมบำรุง + ปฏิทินงานช่าง
+       ======================================================================= */
+    .maint-textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-family: 'Sarabun', sans-serif;
+      font-size: 15px;
+      background: #FAFAFA;
+      resize: vertical;
+    }
+
+    /* ---------- เลือกระดับความรุนแรง ---------- */
+    .maint-sev-grid { display: grid; gap: 10px; }
+    .maint-sev-card {
+      text-align: left;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--card);
+      padding: 12px 14px;
+      cursor: pointer;
+      font-family: 'Sarabun', sans-serif;
+      transition: all .18s var(--ease);
+    }
+    .maint-sev-card .msc-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .maint-sev-card .msc-icon { font-size: 18px; }
+    .maint-sev-card .msc-time { font-size: 12.5px; font-weight: 700; color: var(--text-soft); }
+    .maint-sev-card .msc-label { font-weight: 700; color: var(--navy); font-size: 14.5px; }
+    .maint-sev-card .msc-hint { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; line-height: 1.5; }
+    .maint-sev-card.sev1.active { border-color: var(--success); background: var(--success-soft); }
+    .maint-sev-card.sev2.active { border-color: var(--amber); background: #FFF4DE; }
+    .maint-sev-card.sev3.active { border-color: var(--danger); background: var(--danger-soft); }
+
+    /* ---------- เลือกวันที่ (Slot picker) ---------- */
+    .maint-day-picker {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .maint-day {
+      text-align: left;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--card);
+      padding: 10px 12px;
+      cursor: pointer;
+      font-family: 'Sarabun', sans-serif;
+    }
+    .maint-day.active { border-color: var(--navy); background: var(--navy); }
+    .maint-day.active .md-date, .maint-day.active .md-meta { color: #fff; }
+    .maint-day.full { opacity: .45; cursor: not-allowed; background: var(--bg); }
+    .maint-day.emergency { border-style: dashed; border-color: var(--danger); }
+    .md-date { font-weight: 700; color: var(--navy); font-size: 13.5px; }
+    .md-today {
+      background: var(--amber);
+      color: var(--navy);
+      border-radius: 6px;
+      padding: 0 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .md-bar {
+      height: 5px;
+      border-radius: 999px;
+      background: var(--border);
+      margin: 6px 0 4px;
+      overflow: hidden;
+    }
+    .md-bar span { display: block; height: 100%; background: var(--navy-light); }
+    .md-meta { font-size: 11.5px; color: var(--text-soft); }
+    .maint-nofree {
+      grid-column: 1 / -1;
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    /* ---------- สถานะงาน ---------- */
+    .maint-status {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .maint-status.st-pending { background: var(--bg); color: var(--text-soft); }
+    .maint-status.st-progress { background: #FFF1D6; color: var(--amber-dark); }
+    .maint-status.st-done { background: var(--success-soft); color: var(--success); }
+    .maint-status.st-handed { background: #E4EAF5; color: var(--navy); }
+    .maint-status.st-cancel { background: var(--danger-soft); color: var(--danger); }
+
+    /* ---------- คิวของฉัน (ฝั่งคนขับ) ---------- */
+    .maint-mine {
+      border: 1.5px solid var(--border);
+      border-left: 5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      margin-top: 10px;
+    }
+    .maint-mine.sev1 { border-left-color: var(--success); }
+    .maint-mine.sev2 { border-left-color: var(--amber); }
+    .maint-mine.sev3 { border-left-color: var(--danger); }
+    .mm-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .mm-plate { font-family: 'Prompt', sans-serif; font-weight: 600; color: var(--navy); }
+    .mm-meta { font-size: 12.5px; color: var(--text-soft); margin-top: 3px; }
+    .mm-symptom { font-size: 13.5px; margin-top: 6px; line-height: 1.6; }
+    .mm-note {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .mm-cancel { width: auto; margin-top: 10px; padding: 7px 14px; font-size: 13px; }
+
+    /* ---------- ปฏิทินช่าง ---------- */
+    .maint-cal-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .maint-mode { display: flex; gap: 6px; }
+    .maint-mode .tab-btn { flex: 0 0 auto; padding: 7px 16px; }
+    .maint-nav { display: flex; gap: 6px; }
+    .maint-nav-btn {
+      border: 1.5px solid var(--border);
+      background: var(--card);
+      border-radius: 10px;
+      min-width: 40px;
+      height: 38px;
+      font-family: 'Sarabun', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--navy);
+      cursor: pointer;
+    }
+    .maint-nav-btn.today { font-size: 13px; padding: 0 14px; }
+    .maint-legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .maint-chip {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: var(--bg);
+      color: var(--text-soft);
+    }
+
+    .maint-day-panel.is-today { border-left: 5px solid var(--amber); }
+    .maint-day-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .mdh-date { font-family: 'Prompt', sans-serif; font-weight: 600; color: var(--navy); font-size: 16px; }
+    .mdh-meta { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+    .maint-over-flag {
+      background: var(--danger-soft);
+      color: var(--danger);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    .maint-cap-bar {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--border);
+      overflow: hidden;
+      margin: 10px 0 14px;
+    }
+    .maint-cap-bar span { display: block; height: 100%; background: var(--navy-light); }
+    .maint-cap-bar.over span { background: var(--danger); }
+
+    .maint-job-list { display: grid; gap: 10px; }
+    .maint-job {
+      border: 1.5px solid var(--border);
+      border-left: 6px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      background: var(--card);
+    }
+    .maint-job.sev1 { border-left-color: var(--success); }
+    .maint-job.sev2 { border-left-color: var(--amber); }
+    .maint-job.sev3 { border-left-color: var(--danger); background: #FFFAFA; }
+    .mj-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .mj-plate { font-family: 'Prompt', sans-serif; font-weight: 600; font-size: 16px; color: var(--navy); }
+    .mj-time { font-size: 12.5px; color: var(--text-soft); margin-top: 4px; font-weight: 600; }
+    .mj-driver { font-size: 13px; margin-top: 4px; }
+    .mj-cat {
+      display: inline-block;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-soft);
+      margin-top: 6px;
+    }
+    .mj-symptom { font-size: 13.5px; line-height: 1.6; margin-top: 6px; }
+    .mj-overbooked {
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    .mj-note {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .mj-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .maint-act {
+      border: 1.5px solid var(--border);
+      background: var(--card);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-family: 'Sarabun', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--navy);
+      cursor: pointer;
+    }
+    .maint-act.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+    @media (max-width: 480px) {
+      .maint-day-picker { grid-template-columns: repeat(2, 1fr); }
+      .maint-cal-toolbar { justify-content: center; }
+    }

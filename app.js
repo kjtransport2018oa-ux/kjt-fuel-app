@@ -278,7 +278,8 @@ function handlePwaInstallClick_() {
       Admin: 'ผู้ดูแลระบบ',
       Supervisor: 'หัวหน้างาน',
       Driver: 'คนขับรถ',
-      FuelAttendant: 'คนเติมน้ำมัน'
+      FuelAttendant: 'คนเติมน้ำมัน',
+      Mechanic: 'ช่างซ่อมบำรุง'
     };
 
     /* ---------- Toast ---------- */
@@ -388,7 +389,7 @@ function handlePwaInstallClick_() {
         renderSupervisorHome('mainContent');
       } else if (currentUser.role === 'Driver') {
         renderDriverHome();
-      } else if (currentUser.role === 'FuelAttendant') {
+      } else if (currentUser.role === 'FuelAttendant' || currentUser.role === 'Mechanic') {
         renderAttendantHome();
       } else {
         el.innerHTML =
@@ -407,10 +408,12 @@ function handlePwaInstallClick_() {
           '<button class="tab-btn' + (adminActiveTab === 'schedule' ? ' active' : '') + '" onclick="switchAdminTab(\'schedule\')">ตารางเติมน้ำมัน</button>' +
           '<button class="tab-btn' + (adminActiveTab === 'users' ? ' active' : '') + '" onclick="switchAdminTab(\'users\')">จัดการผู้ใช้งาน</button>' +
           '<button class="tab-btn' + (adminActiveTab === 'healthImport' ? ' active' : '') + '" onclick="switchAdminTab(\'healthImport\')">นำเข้าผลตรวจสุขภาพ</button>' +
+          '<button class="tab-btn' + (adminActiveTab === 'maintenance' ? ' active' : '') + '" onclick="switchAdminTab(\'maintenance\')">คิวซ่อมบำรุง</button>' +
         '</div>' +
         '<div id="adminTabContent"></div>';
       if (adminActiveTab === 'users') renderAdminUsers('adminTabContent');
       else if (adminActiveTab === 'healthImport') renderHealthImportPage_('adminTabContent', '');
+      else if (adminActiveTab === 'maintenance') renderMaintenanceCalendarPage_('adminTabContent', '');
       else renderSupervisorSchedule('adminTabContent');
     }
 
@@ -427,6 +430,7 @@ function handlePwaInstallClick_() {
       if (driverView === 'qr') { renderDriverQr(); return; }
       if (driverView === 'history') { renderDriverHistory(); return; }
       if (driverView === 'map') { renderDriverSafetyMap(); return; }
+      if (driverView === 'maint') { renderMaintenanceBookingPage_("goDriverView('menu')"); return; }
 
       const el = document.getElementById('mainContent');
       el.innerHTML =
@@ -439,6 +443,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goDriverView(\'map\')">' +
             '<span class="dmb-icon">📍</span><span class="dmb-label">แผนที่ส่งสินค้า / จุดเสี่ยง</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goDriverView(\'maint\')">' +
+            '<span class="dmb-icon">🔧</span><span class="dmb-label">แจ้งซ่อม / จองคิวเข้าอู่</span>' +
           '</button>' +
         '</div>';
     }
@@ -811,10 +818,22 @@ function handlePwaInstallClick_() {
       if (attendantView === 'meter') { renderAttendantMeter(); return; }
       if (attendantView === 'signature') { renderAttendantSignature(); return; }
       if (attendantView === 'report') { renderAttendantReport(); return; }
+      // ช่างซ่อมบำรุงใช้เมนูน้ำมันชุดเดียวกับคนเติมน้ำมัน แล้วมีเมนูคิวซ่อมเพิ่มมาอีก 2 รายการ
+      if (attendantView === 'maintQueue') { renderMaintenanceCalendarPage_('mainContent', "goAttendantView('menu')"); return; }
+      if (attendantView === 'maintBook') { renderMaintenanceBookingPage_("goAttendantView('menu')"); return; }
 
+      const isMechanic = currentUser.role === 'Mechanic';
       const el = document.getElementById('mainContent');
       el.innerHTML =
         '<div class="driver-menu">' +
+          (isMechanic
+            ? '<button type="button" class="driver-menu-btn" onclick="goAttendantView(\'maintQueue\')">' +
+                '<span class="dmb-icon">🔧</span><span class="dmb-label">ตารางงานซ่อม / คิวเข้าอู่</span>' +
+              '</button>' +
+              '<button type="button" class="driver-menu-btn" onclick="goAttendantView(\'maintBook\')">' +
+                '<span class="dmb-icon">📝</span><span class="dmb-label">เปิดใบจองซ่อมแทนคนขับ</span>' +
+              '</button>'
+            : '') +
           '<button type="button" class="driver-menu-btn" onclick="goAttendantView(\'scan\')">' +
             '<span class="dmb-icon">📷</span><span class="dmb-label">สแกน QR เพื่อเติมน้ำมัน</span>' +
           '</button>' +
@@ -1198,7 +1217,7 @@ function handlePwaInstallClick_() {
       el.innerHTML =
         '<div class="panel">' +
           '<div class="panel-title"><h3>เพิ่มผู้ใช้หลายคนพร้อมกัน</h3></div>' +
-          '<p class="panel-hint">วางจาก Excel ได้เลย (คลิกช่องแรกแล้ว Ctrl+V) — ช่อง Role พิมพ์ได้ทั้ง Admin / Supervisor / Driver / FuelAttendant หรือภาษาไทย เช่น หัวหน้างาน, คนขับ, คนเติมน้ำมัน</p>' +
+          '<p class="panel-hint">วางจาก Excel ได้เลย (คลิกช่องแรกแล้ว Ctrl+V) — ช่อง Role พิมพ์ได้ทั้ง Admin / Supervisor / Driver / FuelAttendant / Mechanic หรือภาษาไทย เช่น หัวหน้างาน, คนขับ, คนเติมน้ำมัน, ช่างซ่อมบำรุง</p>' +
           '<div class="grid-scroll"><table class="grid" id="userGrid"></table></div>' +
           '<div class="grid-toolbar">' +
             '<button class="btn btn-outline btn-sm" onclick="addUserGridRow()">+ เพิ่มแถว</button>' +
@@ -1750,6 +1769,430 @@ function handlePwaInstallClick_() {
        ========================================================================= */
 
     /** เพศในไฟล์ผลตรวจเป็นภาษาไทย ('ชาย'/'หญิง') — บางเกณฑ์ (Hb, Creatinine) ต่างกันตามเพศ */
+    /* =========================================================================
+       โมดูลจองคิวซ่อมบำรุง + ปฏิทินงานช่าง
+       - คนขับ/หัวหน้างาน: แจ้งซ่อม + เลือกวันที่ที่คิวยังว่าง (Slot Limit Engine)
+       - ช่าง/หัวหน้างาน/Admin: ปฏิทินงานรายวัน-รายสัปดาห์ + อัปเดตสถานะงาน
+       backend อยู่ในไฟล์ MaintenanceAPI.gs
+       ========================================================================= */
+
+    const MAINT_SEVERITY_META_ = {
+      1: { icon: '🟢', cls: 'sev1', label: 'ระดับ 1 — งานเล็กน้อย', hint: 'เช่น เปลี่ยนหลอดไฟ เติมลม ขันน็อต เช็คทั่วไป' },
+      2: { icon: '🟡', cls: 'sev2', label: 'ระดับ 2 — งานปานกลาง', hint: 'เช่น เปลี่ยนผ้าเบรก เปลี่ยนถ่ายน้ำมันเครื่อง ซ่อมระบบไฟ' },
+      3: { icon: '🔴', cls: 'sev3', label: 'ระดับ 3 — งานหนัก / ฉุกเฉินวิกฤต', hint: 'เช่น เครื่องยนต์ เกียร์ ระบบเบรกมีปัญหา — ห้ามฝืนใช้งานรถ' }
+    };
+
+    const MAINT_STATUS_META_ = {
+      Pending:    { label: 'รอซ่อม',      cls: 'st-pending',  next: 'InProgress', nextLabel: '▶ เริ่มซ่อม' },
+      InProgress: { label: 'กำลังซ่อม',   cls: 'st-progress', next: 'Completed',  nextLabel: '✔ ซ่อมเสร็จ' },
+      Completed:  { label: 'ซ่อมเสร็จ',   cls: 'st-done',     next: 'HandedOver', nextLabel: '🔑 ส่งมอบรถ' },
+      HandedOver: { label: 'ส่งมอบแล้ว',  cls: 'st-handed',   next: '',           nextLabel: '' },
+      Cancelled:  { label: 'ยกเลิกแล้ว',  cls: 'st-cancel',   next: '',           nextLabel: '' }
+    };
+
+    let maintFormData_ = null;
+    let maintSeverity_ = 0;
+    let maintSelectedDate_ = '';
+    let maintCalMode_ = 'day';      // day | week
+    let maintCalAnchor_ = '';       // YYYY-MM-DD ของวันที่กำลังดู
+    let maintCalBack_ = '';
+    let maintBookingBackOnclick_ = '';   // ปุ่มย้อนกลับของหน้าจอง ต่าง Role กัน เก็บไว้จะได้ไม่หลุดตอน re-render
+
+    function maintMinutesText_(min) {
+      const m = Number(min) || 0;
+      if (m < 60) return m + ' นาที';
+      const h = Math.floor(m / 60), r = m % 60;
+      return h + ' ชม.' + (r ? ' ' + r + ' นาที' : '');
+    }
+
+    function maintTodayISO_() {
+      const d = new Date();
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    }
+
+    function maintAddDays_(iso, n) {
+      const p = iso.split('-');
+      const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      d.setDate(d.getDate() + n);
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    }
+
+    /* =========================================================================
+       ฝั่งคนขับ: ฟอร์มแจ้งซ่อม / จองคิว
+       ========================================================================= */
+    function renderMaintenanceBookingPage_(backOnclick) {
+      maintBookingBackOnclick_ = backOnclick || '';
+      const el = document.getElementById('mainContent');
+      el.innerHTML =
+        (backOnclick ? '<button type="button" class="back-link" onclick="' + backOnclick + '">← กลับ</button>' : '') +
+        '<div id="maintBookingBody"><div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดคิวซ่อม...</p></div></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const body = document.getElementById('maintBookingBody');
+          if (!body) return;
+          if (!res || !res.success) {
+            body.innerHTML = '<div class="empty-state">' + escapeHtml((res && res.message) || 'โหลดข้อมูลไม่สำเร็จ') + '</div>';
+            return;
+          }
+          maintFormData_ = res;
+          maintSeverity_ = 0;
+          maintSelectedDate_ = '';
+          body.innerHTML = maintBookingFormHtml_(res) + maintMyBookingsHtml_(res.myBookings);
+        })
+        .withFailureHandler(function (err) {
+          const body = document.getElementById('maintBookingBody');
+          if (body) body.innerHTML = '<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getMaintenanceFormData(sessionToken);
+    }
+
+    function maintBookingFormHtml_(data) {
+      const plateOptions = data.plates.map(function (p) {
+        return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
+      }).join('');
+      const catOptions = data.categories.map(function (c) {
+        return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>';
+      }).join('');
+
+      const sevCards = [1, 2, 3].map(function (n) {
+        const m = MAINT_SEVERITY_META_[n];
+        return '<button type="button" class="maint-sev-card ' + m.cls + '" id="maintSev' + n + '" onclick="maintSelectSeverity_(' + n + ')">' +
+          '<div class="msc-top"><span class="msc-icon">' + m.icon + '</span>' +
+            '<span class="msc-time">≈ ' + maintMinutesText_(data.severityMinutes[n]) + (n === 3 ? ' ขึ้นไป' : '') + '</span></div>' +
+          '<div class="msc-label">' + escapeHtml(m.label) + '</div>' +
+          '<div class="msc-hint">' + escapeHtml(m.hint) + '</div>' +
+        '</button>';
+      }).join('');
+
+      return '<div class="panel">' +
+        '<div class="panel-title"><h3>แจ้งซ่อม / จองคิวเข้าอู่</h3></div>' +
+        '<p class="panel-hint">กรอกอาการที่พบและเลือกระดับความรุนแรง ระบบจะคำนวณเวลาซ่อมและแสดงเฉพาะวันที่คิวยังว่างให้เลือก</p>' +
+
+        '<div class="field"><label>ทะเบียนรถ</label>' +
+          '<select id="maintPlate" onchange="maintTogglePlateInput_()">' +
+            '<option value="">— เลือกทะเบียนรถ —</option>' + plateOptions +
+            '<option value="__other__">อื่นๆ (พิมพ์เอง)</option>' +
+          '</select>' +
+          '<input type="text" id="maintPlateOther" placeholder="เช่น 71-1645" style="display:none;margin-top:8px;">' +
+        '</div>' +
+
+        '<div class="field"><label>หมวดหมู่อาการเสีย</label>' +
+          '<select id="maintCategory"><option value="">— เลือกหมวดหมู่ —</option>' + catOptions + '</select>' +
+        '</div>' +
+
+        '<div class="field"><label>รายละเอียดอาการที่พบ</label>' +
+          '<textarea id="maintSymptom" rows="3" class="maint-textarea" placeholder="เช่น เบรกมีเสียงดังตอนเหยียบ ลึกกว่าปกติ เริ่มเป็นตั้งแต่เมื่อวาน"></textarea>' +
+        '</div>' +
+
+        '<div class="field"><label>ระดับความรุนแรงของงาน</label>' +
+          '<div class="maint-sev-grid">' + sevCards + '</div>' +
+        '</div>' +
+
+        '<div class="field"><label>วันที่ต้องการเข้าซ่อม</label>' +
+          '<div id="maintDayPicker" class="maint-day-picker">' +
+            '<div class="empty-state" style="margin:0;">เลือกระดับความรุนแรงก่อน ระบบจะแสดงวันที่ที่คิวว่างพอ</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div id="maintBookingMsg" class="hi-status"></div>' +
+        '<button type="button" class="btn btn-primary" id="maintSubmitBtn" onclick="maintSubmitBooking_()">ยืนยันจองคิวซ่อม</button>' +
+      '</div>';
+    }
+
+    function maintTogglePlateInput_() {
+      const sel = document.getElementById('maintPlate');
+      const other = document.getElementById('maintPlateOther');
+      other.style.display = sel.value === '__other__' ? 'block' : 'none';
+    }
+
+    function maintSelectSeverity_(n) {
+      maintSeverity_ = n;
+      maintSelectedDate_ = '';
+      [1, 2, 3].forEach(function (i) {
+        const btn = document.getElementById('maintSev' + i);
+        if (btn) btn.classList.toggle('active', i === n);
+      });
+      maintRenderDayPicker_();
+    }
+
+    /** วาดชิปวันที่: วันที่เหลือเวลาไม่พอจะกดไม่ได้ ยกเว้นงานระดับ 3 ที่แทรกฉุกเฉินได้ */
+    function maintRenderDayPicker_() {
+      const holder = document.getElementById('maintDayPicker');
+      if (!holder || !maintFormData_ || !maintSeverity_) return;
+      const need = maintFormData_.severityMinutes[maintSeverity_];
+
+      holder.innerHTML = maintFormData_.days.map(function (d) {
+        const enough = d.remainingMinutes >= need && d.jobCount < d.maxJobs;
+        const emergency = !enough && maintSeverity_ === 3;
+        const disabled = !enough && !emergency;
+        const pctUsed = Math.min(100, Math.round(d.usedMinutes * 100 / d.capacityMinutes));
+        return '<button type="button" class="maint-day' +
+            (disabled ? ' full' : '') + (emergency ? ' emergency' : '') +
+            (maintSelectedDate_ === d.dateISO ? ' active' : '') + '"' +
+            (disabled ? ' disabled' : ' onclick="maintSelectDay_(\'' + d.dateISO + '\')"') + '>' +
+          '<div class="md-date">' + escapeHtml(d.dateText) + (d.isToday ? ' <span class="md-today">วันนี้</span>' : '') + '</div>' +
+          '<div class="md-bar"><span style="width:' + pctUsed + '%;"></span></div>' +
+          '<div class="md-meta">' +
+            (disabled ? 'คิวเต็ม' : (emergency ? 'เต็มแล้ว — แทรกฉุกเฉิน' : 'ว่าง ' + maintMinutesText_(d.remainingMinutes))) +
+            ' · ' + d.jobCount + '/' + d.maxJobs + ' คัน' +
+          '</div>' +
+        '</button>';
+      }).join('');
+
+      const anyFree = maintFormData_.days.some(function (d) {
+        return d.remainingMinutes >= need && d.jobCount < d.maxJobs;
+      });
+      if (!anyFree && maintSeverity_ !== 3) {
+        holder.innerHTML += '<div class="maint-nofree">คิวเต็มทุกวันในช่วงที่เปิดจอง กรุณาแจ้งหัวหน้างานเพื่อจัดคิวเพิ่ม</div>';
+      }
+    }
+
+    function maintSelectDay_(iso) {
+      maintSelectedDate_ = iso;
+      maintRenderDayPicker_();
+      const day = maintFormData_.days.filter(function (d) { return d.dateISO === iso; })[0];
+      const need = maintFormData_.severityMinutes[maintSeverity_];
+      if (day && (day.remainingMinutes < need || day.jobCount >= day.maxJobs)) {
+        maintMsg_('วันนี้คิวเต็มแล้ว ระบบจะแทรกให้เพราะเป็นงานฉุกเฉินระดับ 3 — ช่างจะเห็นธงเตือนและติดต่อกลับเพื่อยืนยันเวลา', 'warn');
+      } else {
+        maintMsg_('');
+      }
+    }
+
+    function maintMsg_(text, kind) {
+      const el = document.getElementById('maintBookingMsg');
+      if (!el) return;
+      el.className = 'hi-status' + (kind ? ' hi-' + kind : '');
+      el.innerHTML = text ? escapeHtml(text) : '';
+    }
+
+    function maintSubmitBooking_() {
+      const plateSel = document.getElementById('maintPlate').value;
+      const plate = plateSel === '__other__' ? document.getElementById('maintPlateOther').value.trim() : plateSel;
+      const category = document.getElementById('maintCategory').value;
+      const symptom = document.getElementById('maintSymptom').value.trim();
+
+      if (!plate) { maintMsg_('กรุณาเลือกหรือพิมพ์ทะเบียนรถ', 'err'); return; }
+      if (!category) { maintMsg_('กรุณาเลือกหมวดหมู่อาการเสีย', 'err'); return; }
+      if (!symptom) { maintMsg_('กรุณาพิมพ์รายละเอียดอาการที่พบ', 'err'); return; }
+      if (!maintSeverity_) { maintMsg_('กรุณาเลือกระดับความรุนแรงของงาน', 'err'); return; }
+      if (!maintSelectedDate_) { maintMsg_('กรุณาเลือกวันที่ต้องการเข้าซ่อม', 'err'); return; }
+
+      const btn = document.getElementById('maintSubmitBtn');
+      btn.disabled = true;
+      maintMsg_('กำลังจองคิว...');
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          if (!res || !res.success) { maintMsg_((res && res.message) || 'จองคิวไม่สำเร็จ', 'err'); return; }
+          showToast('จองคิวซ่อมสำเร็จ');
+          maintMsg_(res.message, res.overbooked ? 'warn' : 'ok');
+          // โหลดใหม่ทั้งหน้าเพื่อให้โควตาของทุกวันอัปเดตตรงกับของจริง
+          renderMaintenanceBookingPage_(maintBookingBack_());
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          maintMsg_('จองคิวไม่สำเร็จ: ' + err.message, 'err');
+        })
+        .createMaintenanceBooking(sessionToken, {
+          dateISO: maintSelectedDate_, plateNumber: plate,
+          category: category, symptom: symptom, severity: maintSeverity_
+        });
+    }
+
+    function maintBookingBack_() { return maintBookingBackOnclick_; }
+
+    function maintMyBookingsHtml_(bookings) {
+      if (!bookings || !bookings.length) {
+        return '<div class="panel"><div class="panel-title"><h3>คิวซ่อมของฉัน</h3></div>' +
+          '<div class="empty-state">ยังไม่เคยจองคิวซ่อม</div></div>';
+      }
+      const rows = bookings.map(function (b) {
+        const sev = MAINT_SEVERITY_META_[b.severity] || MAINT_SEVERITY_META_[1];
+        const st = MAINT_STATUS_META_[b.status] || MAINT_STATUS_META_.Pending;
+        return '<div class="maint-mine ' + sev.cls + '">' +
+          '<div class="mm-head">' +
+            '<span class="mm-plate">' + sev.icon + ' ' + escapeHtml(b.plateNumber) + '</span>' +
+            '<span class="maint-status ' + st.cls + '">' + st.label + '</span>' +
+          '</div>' +
+          '<div class="mm-meta">' + escapeHtml(b.dateText) + ' · ' + escapeHtml(b.category) + ' · ประเมิน ' + maintMinutesText_(b.estimatedMinutes) + '</div>' +
+          '<div class="mm-symptom">' + escapeHtml(b.symptom) + '</div>' +
+          (b.mechanicNote ? '<div class="mm-note">🔧 ช่าง: ' + escapeHtml(b.mechanicNote) + '</div>' : '') +
+          (b.status === 'Pending'
+            ? '<button type="button" class="btn btn-outline mm-cancel" onclick="maintCancelBooking_(\'' + b.id + '\')">ยกเลิกใบจองนี้</button>'
+            : '') +
+        '</div>';
+      }).join('');
+      return '<div class="panel"><div class="panel-title"><h3>คิวซ่อมของฉัน</h3></div>' + rows + '</div>';
+    }
+
+    function maintCancelBooking_(id) {
+      if (!confirm('ยืนยันยกเลิกใบจองนี้?')) return;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { showToast((res && res.message) || 'ยกเลิกไม่สำเร็จ', true); return; }
+          showToast('ยกเลิกใบจองแล้ว');
+          renderMaintenanceBookingPage_(maintBookingBack_());
+        })
+        .withFailureHandler(function (err) { showToast('ยกเลิกไม่สำเร็จ: ' + err.message, true); })
+        .cancelMaintenanceBooking(sessionToken, id, '');
+    }
+
+    /* =========================================================================
+       ฝั่งช่าง: ปฏิทินงานซ่อม (รายวัน / รายสัปดาห์)
+       ========================================================================= */
+    function renderMaintenanceCalendarPage_(targetId, backOnclick) {
+      maintCalBack_ = backOnclick || '';
+      if (!maintCalAnchor_) maintCalAnchor_ = maintTodayISO_();
+      const el = document.getElementById(targetId || 'mainContent');
+      if (!el) return;
+      el.innerHTML =
+        (maintCalBack_ ? '<button type="button" class="back-link" onclick="' + maintCalBack_ + '">← กลับ</button>' : '') +
+        '<div id="maintCalBody"><div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดตารางงานซ่อม...</p></div></div>';
+      maintLoadCalendar_();
+    }
+
+    function maintCalRange_() {
+      if (maintCalMode_ === 'day') return { from: maintCalAnchor_, to: maintCalAnchor_ };
+      // รายสัปดาห์: เริ่มวันจันทร์ของสัปดาห์ที่ anchor อยู่
+      const p = maintCalAnchor_.split('-');
+      const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      const shift = (d.getDay() + 6) % 7; // จันทร์ = 0
+      const from = maintAddDays_(maintCalAnchor_, -shift);
+      return { from: from, to: maintAddDays_(from, 6) };
+    }
+
+    function maintLoadCalendar_() {
+      const body = document.getElementById('maintCalBody');
+      if (!body) return;
+      const range = maintCalRange_();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) {
+            body.innerHTML = '<div class="empty-state">' + escapeHtml((res && res.message) || 'โหลดไม่สำเร็จ') + '</div>';
+            return;
+          }
+          body.innerHTML = maintCalendarHtml_(res);
+        })
+        .withFailureHandler(function (err) {
+          body.innerHTML = '<div class="empty-state">โหลดไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getMaintenanceCalendar(sessionToken, range.from, range.to);
+    }
+
+    function maintSetCalMode_(mode) { maintCalMode_ = mode; maintLoadCalendar_(); }
+    function maintShiftCal_(step) {
+      maintCalAnchor_ = maintAddDays_(maintCalAnchor_, maintCalMode_ === 'day' ? step : step * 7);
+      maintLoadCalendar_();
+    }
+    function maintGoToday_() { maintCalAnchor_ = maintTodayISO_(); maintLoadCalendar_(); }
+
+    function maintCalendarHtml_(res) {
+      const byDay = {};
+      res.bookings.forEach(function (b) {
+        if (!byDay[b.dateISO]) byDay[b.dateISO] = [];
+        byDay[b.dateISO].push(b);
+      });
+
+      let html = '<div class="panel maint-cal-head">' +
+        '<div class="maint-cal-toolbar">' +
+          '<div class="maint-mode">' +
+            '<button type="button" class="tab-btn' + (maintCalMode_ === 'day' ? ' active' : '') + '" onclick="maintSetCalMode_(\'day\')">รายวัน</button>' +
+            '<button type="button" class="tab-btn' + (maintCalMode_ === 'week' ? ' active' : '') + '" onclick="maintSetCalMode_(\'week\')">รายสัปดาห์</button>' +
+          '</div>' +
+          '<div class="maint-nav">' +
+            '<button type="button" class="maint-nav-btn" onclick="maintShiftCal_(-1)">‹</button>' +
+            '<button type="button" class="maint-nav-btn today" onclick="maintGoToday_()">วันนี้</button>' +
+            '<button type="button" class="maint-nav-btn" onclick="maintShiftCal_(1)">›</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="maint-legend">' +
+          '<span class="maint-chip sev1">🟢 งานเล็กน้อย</span>' +
+          '<span class="maint-chip sev2">🟡 งานปานกลาง</span>' +
+          '<span class="maint-chip sev3">🔴 งานหนัก/ฉุกเฉิน</span>' +
+        '</div>' +
+      '</div>';
+
+      html += res.days.map(function (d) {
+        const jobs = byDay[d.dateISO] || [];
+        const pct = Math.min(100, Math.round(d.usedMinutes * 100 / d.capacityMinutes));
+        const cards = jobs.length
+          ? jobs.map(function (b) { return maintJobCardHtml_(b, res.canEdit); }).join('')
+          : '<div class="empty-state" style="margin:0;">ไม่มีงานซ่อมในวันนี้</div>';
+
+        return '<div class="panel maint-day-panel' + (d.isToday ? ' is-today' : '') + '">' +
+          '<div class="maint-day-head">' +
+            '<div>' +
+              '<div class="mdh-date">' + escapeHtml(d.dateText) + (d.isToday ? ' <span class="md-today">วันนี้</span>' : '') + '</div>' +
+              '<div class="mdh-meta">' + d.jobCount + '/' + d.maxJobs + ' คัน · ' +
+                maintMinutesText_(d.usedMinutes) + ' / ' + maintMinutesText_(d.capacityMinutes) + '</div>' +
+            '</div>' +
+            (d.over ? '<span class="maint-over-flag">⚠ งานล้นโควตา</span>' : '') +
+          '</div>' +
+          '<div class="maint-cap-bar' + (d.over ? ' over' : '') + '"><span style="width:' + pct + '%;"></span></div>' +
+          '<div class="maint-job-list">' + cards + '</div>' +
+        '</div>';
+      }).join('');
+
+      return html;
+    }
+
+    function maintJobCardHtml_(b, canEdit) {
+      const sev = MAINT_SEVERITY_META_[b.severity] || MAINT_SEVERITY_META_[1];
+      const st = MAINT_STATUS_META_[b.status] || MAINT_STATUS_META_.Pending;
+
+      let actions = '';
+      if (canEdit && st.next) {
+        actions += '<button type="button" class="maint-act primary" onclick="maintUpdateStatus_(\'' + b.id + '\',\'' + st.next + '\')">' + st.nextLabel + '</button>';
+      }
+      if (canEdit) {
+        actions += '<button type="button" class="maint-act" onclick="maintOpenNote_(\'' + b.id + '\',\'' + b.status + '\')">📝 บันทึกช่าง</button>';
+      }
+
+      return '<div class="maint-job ' + sev.cls + '">' +
+        '<div class="mj-top">' +
+          '<span class="mj-plate">' + sev.icon + ' ' + escapeHtml(b.plateNumber) + '</span>' +
+          '<span class="maint-status ' + st.cls + '">' + st.label + '</span>' +
+        '</div>' +
+        '<div class="mj-time">🕒 ' + escapeHtml(b.planStart || '-') + ' - ' + escapeHtml(b.planEnd || '-') +
+          ' · ประเมิน ' + maintMinutesText_(b.estimatedMinutes) + '</div>' +
+        '<div class="mj-driver">👤 ' + escapeHtml(b.driverName || b.driverUsername) + '</div>' +
+        '<div class="mj-cat">' + escapeHtml(b.category) + '</div>' +
+        '<div class="mj-symptom">' + escapeHtml(b.symptom) + '</div>' +
+        (b.overbooked ? '<div class="mj-overbooked">⚠ งานแทรกฉุกเฉิน — วันนี้คิวเกินโควตาปกติ</div>' : '') +
+        (b.mechanicNote ? '<div class="mj-note">📝 ' + escapeHtml(b.mechanicNote) + '</div>' : '') +
+        (actions ? '<div class="mj-actions">' + actions + '</div>' : '') +
+      '</div>';
+    }
+
+    function maintUpdateStatus_(id, status) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { showToast((res && res.message) || 'อัปเดตไม่สำเร็จ', true); return; }
+          showToast('อัปเดตสถานะแล้ว');
+          maintLoadCalendar_();
+        })
+        .withFailureHandler(function (err) { showToast('อัปเดตไม่สำเร็จ: ' + err.message, true); })
+        .updateMaintenanceStatus(sessionToken, id, status, '', null);
+    }
+
+    /** บันทึกของช่าง + แก้เวลาที่ใช้จริง (งานระดับ 3 มักใช้เวลาต่างจากที่ประเมินไว้) */
+    function maintOpenNote_(id, currentStatus) {
+      const note = prompt('บันทึกของช่าง (สิ่งที่ทำ / อะไหล่ที่เปลี่ยน / สิ่งที่ต้องตามต่อ):', '');
+      if (note === null) return;
+      const mins = prompt('เวลาที่ใช้จริง (นาที) — เว้นว่างถ้าใช้ตามที่ประเมินไว้:', '');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) { showToast((res && res.message) || 'บันทึกไม่สำเร็จ', true); return; }
+          showToast('บันทึกเรียบร้อย');
+          maintLoadCalendar_();
+        })
+        .withFailureHandler(function (err) { showToast('บันทึกไม่สำเร็จ: ' + err.message, true); })
+        .updateMaintenanceStatus(sessionToken, id, currentStatus || 'Pending', note, mins ? Number(mins) : null);
+    }
+
     function healthIsMale_(record) {
       const g = String(record && record.gender || '').trim();
       return g.indexOf('ช') === 0 || g.toLowerCase().indexOf('m') === 0;
@@ -2814,6 +3257,14 @@ function handlePwaInstallClick_() {
         renderSupervisorReportPage_();
         return;
       }
+      if (supervisorView === 'maintQueue') {
+        renderMaintenanceCalendarPage_('mainContent', "goSupervisorView('menu')");
+        return;
+      }
+      if (supervisorView === 'maintBook') {
+        renderMaintenanceBookingPage_("goSupervisorView('menu')");
+        return;
+      }
       if (supervisorView === 'healthImport') {
         // หน้านำเข้าใช้ #mainContent ตรงๆ เหมือนหน้าสุขภาพอื่น เพื่อให้พื้นที่ตาราง preview กว้างพอ
         renderHealthImportPage_('mainContent', "goSupervisorView('menu')");
@@ -2837,6 +3288,12 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openHealthSummaryPage_()">' +
             '<span class="dmb-icon">🩺</span><span class="dmb-label">สุขภาพพนักงาน (ผลตรวจประจำปี)</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'maintQueue\')">' +
+            '<span class="dmb-icon">🔧</span><span class="dmb-label">ตารางงานซ่อมบำรุง (ทั้งอู่)</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'maintBook\')">' +
+            '<span class="dmb-icon">📝</span><span class="dmb-label">เปิดใบจองซ่อมแทนคนขับ</span>' +
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'healthImport\')">' +
             '<span class="dmb-icon">📥</span><span class="dmb-label">นำเข้าผลตรวจสุขภาพประจำปี (จากไฟล์บริษัทตรวจ)</span>' +
