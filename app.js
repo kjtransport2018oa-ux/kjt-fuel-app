@@ -1851,11 +1851,8 @@ function handlePwaInstallClick_() {
       const plateOptions = data.plates.map(function (p) {
         return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
       }).join('');
+      // เฟส 2: ต่อท้ายชื่อหมวดด้วยไอคอนสี ให้คนขับเห็นระดับความสำคัญตอนเลือกเลย ไม่ต้องกดเลือกเอง
       const catOptions = data.categories.map(function (c) {
-        return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>';
-      }).join('');
-
-        const catOptions = data.categories.map(function (c) {
         const sev = data.categorySeverity[c] || 2;
         const icon = MAINT_SEVERITY_META_[sev].icon;
         return '<option value="' + escapeHtml(c) + '">' + icon + ' ' + escapeHtml(c) + '</option>';
@@ -1863,7 +1860,7 @@ function handlePwaInstallClick_() {
 
       return '<div class="panel">' +
         '<div class="panel-title"><h3>แจ้งซ่อม / จองคิวเข้าอู่</h3></div>' +
-        '<p class="panel-hint">กรอกอาการที่พบและเลือกระดับความรุนแรง ระบบจะคำนวณเวลาซ่อมและแสดงเฉพาะวันที่คิวยังว่างให้เลือก</p>' +
+        '<p class="panel-hint">เลือกหมวดหมู่อาการเสีย ระบบจะกำหนดระดับความสำคัญและเวลาซ่อมให้อัตโนมัติ แล้วแสดงเฉพาะวันที่คิวยังว่างให้เลือก</p>' +
 
         '<div class="field"><label>ทะเบียนรถ</label>' +
           '<select id="maintPlate" onchange="maintTogglePlateInput_()">' +
@@ -1882,13 +1879,9 @@ function handlePwaInstallClick_() {
           '<textarea id="maintSymptom" rows="3" class="maint-textarea" placeholder="เช่น เบรกมีเสียงดังตอนเหยียบ ลึกกว่าปกติ เริ่มเป็นตั้งแต่เมื่อวาน"></textarea>' +
         '</div>' +
 
-        '<div class="field"><label>ระดับความรุนแรงของงาน</label>' +
-          '<div class="maint-sev-grid">' + sevCards + '</div>' +
-        '</div>' +
-
         '<div class="field"><label>วันที่ต้องการเข้าซ่อม</label>' +
           '<div id="maintDayPicker" class="maint-day-picker">' +
-            '<div class="empty-state" style="margin:0;">เลือกหมวดหมู่อาการก่อน</div>' +
+            '<div class="empty-state" style="margin:0;">เลือกหมวดหมู่อาการก่อน ระบบจะแสดงวันที่ที่คิวว่างพอ</div>' +
           '</div>' +
         '</div>' +
 
@@ -1903,23 +1896,26 @@ function handlePwaInstallClick_() {
       other.style.display = sel.value === '__other__' ? 'block' : 'none';
     }
 
+    /** เฟส 2: แทนที่ maintSelectSeverity_ เดิม — สีความสำคัญมาจากหมวดหมู่ที่เลือกเสมอ คนขับไม่ต้องกดเลือกเอง */
     function maintOnCategoryChange_() {
       const cat = document.getElementById('maintCategory').value;
       const badge = document.getElementById('maintSevBadge');
       maintSelectedDate_ = '';
+
       if (!cat || !maintFormData_) {
         maintSeverity_ = 0;
-      badge.style.display = 'none';
-      maintRenderDayPicker_();
-      return;
-    }
+        badge.style.display = 'none';
+        maintRenderDayPicker_();
+        return;
+      }
+
       maintSeverity_ = maintFormData_.categorySeverity[cat] || 2;
       const m = MAINT_SEVERITY_META_[maintSeverity_];
       badge.style.display = 'block';
       badge.className = 'maint-sev-badge ' + m.cls;
       badge.innerHTML = m.icon + ' ' + escapeHtml(m.label) + ' · ประเมิน ≈ ' + maintMinutesText_(maintFormData_.severityMinutes[maintSeverity_]) + (maintSeverity_ === 3 ? ' ขึ้นไป' : '');
       maintRenderDayPicker_();
-}
+    }
 
     /** วาดชิปวันที่: วันที่เหลือเวลาไม่พอจะกดไม่ได้ ยกเว้นงานระดับ 3 ที่แทรกฉุกเฉินได้ */
     function maintRenderDayPicker_() {
@@ -1981,7 +1977,6 @@ function handlePwaInstallClick_() {
       if (!plate) { maintMsg_('กรุณาเลือกหรือพิมพ์ทะเบียนรถ', 'err'); return; }
       if (!category) { maintMsg_('กรุณาเลือกหมวดหมู่อาการเสีย', 'err'); return; }
       if (!symptom) { maintMsg_('กรุณาพิมพ์รายละเอียดอาการที่พบ', 'err'); return; }
-      if (!maintSeverity_) { maintMsg_('กรุณาเลือกระดับความรุนแรงของงาน', 'err'); return; }
       if (!maintSelectedDate_) { maintMsg_('กรุณาเลือกวันที่ต้องการเข้าซ่อม', 'err'); return; }
 
       const btn = document.getElementById('maintSubmitBtn');
@@ -2003,7 +1998,7 @@ function handlePwaInstallClick_() {
         })
         .createMaintenanceBooking(sessionToken, {
           dateISO: maintSelectedDate_, plateNumber: plate,
-          category: category, symptom: symptom, severity: maintSeverity_
+          category: category, symptom: symptom
         });
     }
 
