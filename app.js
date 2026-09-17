@@ -12,6 +12,10 @@ let editingUsername = null; // null = creating new user
 // แก้เป็น URL เว็บแอป Apps Script ที่ deploy ไว้ (เหมือนเดิม ไม่เปลี่ยน)
 const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwCfj9OYb3CZQZLxt0bmxA1fIcsPuP_Djz5yTH00kyFORFcqgNjJQsbeZXUOUlkt5l1/exec';
 const API_TIMEOUT_MS_ = 15000; // ถ้าเซิร์ฟเวอร์ไม่ตอบภายใน 15 วิ ถือว่า "ช้าผิดปกติ" ตัดจบไม่ให้ค้างรอไม่มีที่สิ้นสุด
+// คำสั่งที่ "ช้าเป็นปกติ" (ส่งข้อมูลทีละร้อยคน + อัปโหลดไฟล์ขึ้น Drive) ต้องให้เวลามากกว่า 15 วิ
+// ไม่งั้นจะถูกตัดทิ้งกลางคันทั้งที่ฝั่งเซิร์ฟเวอร์กำลังเขียนข้อมูลอยู่
+const API_LONG_TIMEOUT_MS_ = 180000;
+const API_LONG_TIMEOUT_FNS_ = ['previewHealthImport', 'confirmHealthImport'];
 
 /** fetch พร้อม timeout — กันปัญหา "เซิร์ฟเวอร์ตอบสนองช้า" ที่ทำให้หน้าเว็บหมุนค้างไม่รู้จบ */
 function fetchWithTimeout_(url, options, timeoutMs) {
@@ -22,12 +26,13 @@ function fetchWithTimeout_(url, options, timeoutMs) {
 }
 
 function callGasApi_(functionName, args) {
+  const timeoutMs = API_LONG_TIMEOUT_FNS_.indexOf(functionName) !== -1 ? API_LONG_TIMEOUT_MS_ : API_TIMEOUT_MS_;
   return fetchWithTimeout_(API_BASE_URL, {
     method: 'POST',
     // ใช้ text/plain เพื่อให้เป็น "simple request" เลี่ยง CORS preflight (OPTIONS) ที่ Apps Script รองรับได้ไม่ดี
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ fn: functionName, args: args })
-  }, API_TIMEOUT_MS_).then(function (res) {
+  }, timeoutMs).then(function (res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   });
@@ -401,9 +406,11 @@ function handlePwaInstallClick_() {
         '<div class="tab-bar">' +
           '<button class="tab-btn' + (adminActiveTab === 'schedule' ? ' active' : '') + '" onclick="switchAdminTab(\'schedule\')">ตารางเติมน้ำมัน</button>' +
           '<button class="tab-btn' + (adminActiveTab === 'users' ? ' active' : '') + '" onclick="switchAdminTab(\'users\')">จัดการผู้ใช้งาน</button>' +
+          '<button class="tab-btn' + (adminActiveTab === 'healthImport' ? ' active' : '') + '" onclick="switchAdminTab(\'healthImport\')">นำเข้าผลตรวจสุขภาพ</button>' +
         '</div>' +
         '<div id="adminTabContent"></div>';
       if (adminActiveTab === 'users') renderAdminUsers('adminTabContent');
+      else if (adminActiveTab === 'healthImport') renderHealthImportPage_('adminTabContent', '');
       else renderSupervisorSchedule('adminTabContent');
     }
 
@@ -1768,6 +1775,384 @@ function handlePwaInstallClick_() {
       areaEl.innerHTML = html;
     }
 
+    /* =========================================================================
+       นำเข้าผลตรวจสุขภาพประจำปี (Auto-Import) — Admin + Supervisor
+       ย้ายมาจากไฟล์ health-checkup-import.html ที่เคยเป็นหน้าเดี่ยว ให้มาอยู่ในแอปหลัก
+       จะได้ใช้ session/token เดิม ไม่ต้องล็อกอินซ้ำ และธีมตรงกับหน้าอื่น
+       SheetJS โหลดแบบ lazy (เฉพาะตอนเปิดหน้านี้) เพื่อไม่ให้ Driver/FuelAttendant
+       ต้องโหลดไลบรารีก้อนใหญ่ทุกครั้งที่เปิดแอป
+       ========================================================================= */
+    const HEALTH_IMPORT_SHEETJS_URL_ = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    let healthImportParsed_ = null;      // { year, company, fileName, mimeType, base64File, records }
+    let healthImportSheetJsPromise_ = null;
+
+    function loadSheetJs_() {
+      if (window.XLSX) return Promise.resolve();
+      if (healthImportSheetJsPromise_) return healthImportSheetJsPromise_;
+      healthImportSheetJsPromise_ = new Promise(function (resolve, reject) {
+        const s = document.createElement('script');
+        s.src = HEALTH_IMPORT_SHEETJS_URL_;
+        s.onload = function () { resolve(); };
+        s.onerror = function () {
+          healthImportSheetJsPromise_ = null;
+          reject(new Error('โหลดตัวอ่านไฟล์ Excel ไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่'));
+        };
+        document.head.appendChild(s);
+      });
+      return healthImportSheetJsPromise_;
+    }
+
+    /* ---------- Auto-Map: หาคอลัมน์จากข้อความใน header จริง ไม่ยึดตำแหน่งคอลัมน์ ----------
+       ถ้าปีหน้าบริษัทตรวจเปลี่ยน "คำ" ใน header (ไม่ใช่แค่สลับตำแหน่ง) ให้มาแก้ที่ตารางนี้จุดเดียว */
+    const HEALTH_COLUMN_PATTERNS_ = {
+      firstName:         ['[Name]'],
+      lastName:          ['[Surname]'],
+      age:               ['[Age]'],
+      gender:            ['[Gender]'],
+      department:        ['[Department]'],
+      weight:            ['[Weight]'],
+      height:            ['[Height]'],
+      bmi:               ['[BMI]'],
+      sbp:               ['ความดันส่วนบน'],
+      dbp:               ['ความดันส่วนล่าง'],
+      pulse:             ['[Pulse]'],
+      doctorNoteRaw:     ['[Dr.Exam]'],
+      peStatus:          ['[Physical Examination'],
+      hemoglobin:        ['[Hemoglobin]'],
+      wbc:               ['[WBC Count]'],
+      cbcStatus:         ['[Complete Blood Count'],
+      uaStatus:          ['[Urinalysis'],
+      ekgStatus:         ['สรุปผลการตรวจ [EKG'],
+      xrayStatus:        ['สรุปผลการตรวจ [Chest X-Ray]'],
+      fbs:               ['FBS ในเลือด'],
+      fbsStatus:         ['[FBS In Blood]'],
+      bun:               ['BUN ในเลือด'],
+      bunStatus:         ['[BUN In Blood]'],
+      cre:               ['CRE ในเลือด'],
+      creStatus:         ['[CRE In Blood]'],
+      cholesterol:       ['Cholesterol:CHOL ในเลือด'],
+      cholesterolStatus: ['[Cholesterol:CHOL In Blood]'],
+      triglyceride:      ['Triglyceride:TG ในเลือด'],
+      triglycerideStatus:['[Triglyceride:TG In Blood]'],
+      sgot:              ['SGOT ในเลือด'],
+      sgotStatus:        ['[SGOT In Blood]'],
+      sgpt:              ['SGPT ในเลือด'],
+      sgptStatus:        ['[SGPT In Blood]'],
+      drugScreenStatus:  ['Methamphetamine In Urine'],
+      hearingStatus:     ['สรุปผลการตรวจ [Audiometry]'],
+      lungStatus:        ['สรุปผลการตรวจ [Spirometry]'],
+      visionStatus:      ['[Occupational Vision]']
+    };
+
+    const HEALTH_STATUS_PRIORITY_ = { 'ผิดปกติ': 3, 'เฝ้าระวัง': 2, 'ปกติ': 1 };
+
+    function healthWorstStatus_(list) {
+      let best = '', bestScore = -1;
+      list.forEach(function (s) {
+        const val = (s || '').toString().trim();
+        const score = HEALTH_STATUS_PRIORITY_[val];
+        if (score && score > bestScore) { bestScore = score; best = val; }
+      });
+      return best;
+    }
+
+    function healthCleanHeader_(h) {
+      return (h || '').toString().replace(/\r|\n/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function healthFindColumnIndex_(headers, patterns) {
+      for (let i = 0; i < headers.length; i++) {
+        const h = headers[i];
+        if (patterns.some(function (p) { return h.indexOf(p) !== -1; })) return i;
+      }
+      return -1;
+    }
+
+    function healthNumberOrBlank_(v) {
+      if (v === undefined || v === null || v === '') return '';
+      const n = Number(v);
+      return isNaN(n) ? '' : n;
+    }
+
+    /** อ่าน workbook ที่ parse แล้ว -> array ของ record object ตาม schema ของชีท HealthCheckup */
+    function healthImportMapWorkbook_(workbook) {
+      const sheetName = workbook.SheetNames.find(function (n) { return n.indexOf('ผลตรวจรวม') !== -1 && n.indexOf('ย่อ') === -1; })
+        || workbook.SheetNames.find(function (n) { return n.indexOf('ผลตรวจรวม') !== -1; });
+      if (!sheetName) throw new Error('ไม่พบชีท "ผลตรวจรวม" ในไฟล์ที่อัปโหลด');
+
+      const sheet = workbook.Sheets[sheetName];
+      const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+
+      // หาแถว header จริง (แถวที่มีคำว่า "ลำดับ") แทนการยึดเลขแถวตายตัว กันไฟล์ปีหน้าขยับแถวหัวตาราง
+      let headerRowIdx = -1;
+      for (let r = 0; r < Math.min(grid.length, 10); r++) {
+        if (grid[r].some(function (c) { return healthCleanHeader_(c).indexOf('ลำดับ') !== -1; })) { headerRowIdx = r; break; }
+      }
+      if (headerRowIdx === -1) throw new Error('หาแถวหัวตาราง (แถวที่มีคำว่า "ลำดับ") ไม่เจอในชีท "ผลตรวจรวม"');
+
+      const headers = grid[headerRowIdx].map(healthCleanHeader_);
+      const col = {};
+      Object.keys(HEALTH_COLUMN_PATTERNS_).forEach(function (key) {
+        col[key] = healthFindColumnIndex_(headers, HEALTH_COLUMN_PATTERNS_[key]);
+      });
+
+      // เตือนถ้าคอลัมน์สำคัญจับคู่ไม่เจอ (ผังไฟล์อาจเปลี่ยนไปจากที่คาดไว้)
+      const criticalMissing = ['firstName', 'lastName', 'bmi'].filter(function (k) { return col[k] === -1; });
+
+      const records = [];
+      for (let r = headerRowIdx + 1; r < grid.length; r++) {
+        const row = grid[r];
+        const firstName = (row[col.firstName] || '').toString().trim();
+        const lastName = (row[col.lastName] || '').toString().trim();
+        if (!firstName && !lastName) continue; // แถวว่าง
+
+        const doctorNoteRaw = (row[col.doctorNoteRaw] || '').toString().trim();
+
+        const peStatus = row[col.peStatus] || '';
+        const cbcStatus = row[col.cbcStatus] || '';
+        const uaStatus = row[col.uaStatus] || '';
+        const ekgStatus = row[col.ekgStatus] || '';
+        const xrayStatus = row[col.xrayStatus] || '';
+        const drugScreenStatus = row[col.drugScreenStatus] || '';
+        const hearingStatus = row[col.hearingStatus] || '';
+        const lungStatus = row[col.lungStatus] || '';
+        const visionStatus = row[col.visionStatus] || '';
+
+        // Biochem_Status ไม่มีคอลัมน์สรุปรวมในไฟล์ดิบ ต้องคำนวณเองจาก 7 ค่าย่อย
+        const biochemStatus = healthWorstStatus_([
+          row[col.fbsStatus], row[col.bunStatus], row[col.creStatus],
+          row[col.cholesterolStatus], row[col.triglycerideStatus], row[col.sgotStatus], row[col.sgptStatus]
+        ]);
+
+        const overallStatus = healthWorstStatus_([
+          peStatus, cbcStatus, uaStatus, ekgStatus, xrayStatus,
+          biochemStatus, hearingStatus, lungStatus, visionStatus
+        ]);
+
+        records.push({
+          firstName: firstName,
+          lastName: lastName,
+          department: (row[col.department] || '').toString().trim(),
+          age: healthNumberOrBlank_(row[col.age]),
+          gender: (row[col.gender] || '').toString().trim(),
+          weight: healthNumberOrBlank_(row[col.weight]),
+          height: healthNumberOrBlank_(row[col.height]),
+          bmi: healthNumberOrBlank_(row[col.bmi]),
+          sbp: healthNumberOrBlank_(row[col.sbp]),
+          dbp: healthNumberOrBlank_(row[col.dbp]),
+          pulse: healthNumberOrBlank_(row[col.pulse]),
+          fbs: healthNumberOrBlank_(row[col.fbs]),
+          bun: healthNumberOrBlank_(row[col.bun]),
+          cre: healthNumberOrBlank_(row[col.cre]),
+          cholesterol: healthNumberOrBlank_(row[col.cholesterol]),
+          triglyceride: healthNumberOrBlank_(row[col.triglyceride]),
+          sgot: healthNumberOrBlank_(row[col.sgot]),
+          sgpt: healthNumberOrBlank_(row[col.sgpt]),
+          hemoglobin: healthNumberOrBlank_(row[col.hemoglobin]),
+          wbc: healthNumberOrBlank_(row[col.wbc]),
+          peStatus: peStatus, cbcStatus: cbcStatus, uaStatus: uaStatus, ekgStatus: ekgStatus, xrayStatus: xrayStatus,
+          biochemStatus: biochemStatus, drugScreenStatus: drugScreenStatus,
+          hearingStatus: hearingStatus, lungStatus: lungStatus, visionStatus: visionStatus,
+          overallStatus: overallStatus,
+          // ในไฟล์ดิบ ช่องคำแนะนำแพทย์ใส่คำว่า 'ปกติ' แทนความหมาย "ไม่มีข้อสังเกต" — ไม่ถือเป็น note จริง
+          doctorNote: (doctorNoteRaw && doctorNoteRaw !== 'ปกติ') ? doctorNoteRaw : ''
+        });
+      }
+
+      return { records: records, criticalMissing: criticalMissing };
+    }
+
+    function healthFileToBase64_(file) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(reader.result.split(',')[1]); };
+        reader.onerror = function () { reject(new Error('อ่านไฟล์ไม่สำเร็จ')); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function healthImportStatus_(msg, kind) {
+      const el = document.getElementById('hiStatus');
+      if (!el) return;
+      el.className = 'hi-status' + (kind ? ' hi-' + kind : '');
+      el.innerHTML = msg ? escapeHtml(msg) : '';
+    }
+
+    /* ---------- หน้าจอหลักของการนำเข้า (ใช้ร่วมกันทั้ง Admin tab และเมนู Supervisor) ----------
+       targetId: id ของกล่องที่จะ render ลงไป, backOnclick: โค้ดปุ่มย้อนกลับ (ส่ง '' ถ้าไม่ต้องการปุ่ม) */
+    function renderHealthImportPage_(targetId, backOnclick) {
+      healthImportParsed_ = null;
+      const el = document.getElementById(targetId || 'mainContent');
+      if (!el) return;
+      const curYear = new Date().getFullYear();
+
+      el.innerHTML =
+        (backOnclick ? '<button type="button" class="back-link" onclick="' + backOnclick + '">← กลับเมนูหลัก</button>' : '') +
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>นำเข้าผลตรวจสุขภาพประจำปี</h3></div>' +
+          '<p class="panel-hint">อัปโหลดไฟล์ผลตรวจดิบจากบริษัทตรวจสุขภาพ (ต้องมีชีทชื่อ "ผลตรวจรวม") ระบบจะจับคู่คอลัมน์ให้อัตโนมัติ และให้ตรวจสอบก่อนบันทึกจริงเสมอ</p>' +
+          '<div class="field"><label>ปีของผลตรวจ (ตรงกับคอลัมน์ Year ในชีท)</label>' +
+            '<input type="number" id="hiYear" value="' + curYear + '" placeholder="เช่น 2025"></div>' +
+          '<div class="field"><label>บริษัท / หน่วยงาน</label>' +
+            '<input type="text" id="hiCompany" placeholder="เช่น KJ"></div>' +
+          '<div class="field"><label>ไฟล์ผลตรวจ (.xlsx)</label>' +
+            '<input type="file" id="hiFile" accept=".xlsx" onchange="healthImportResetPreview_()"></div>' +
+          '<div class="hi-actions">' +
+            '<button type="button" class="btn btn-primary" id="hiParseBtn" onclick="healthImportParse_()">1. อ่านไฟล์ + ตรวจสอบข้อมูลซ้ำ</button>' +
+            '<button type="button" class="btn btn-amber" id="hiConfirmBtn" onclick="healthImportConfirm_()" disabled>2. ยืนยันนำเข้าจริง</button>' +
+          '</div>' +
+          '<div id="hiStatus" class="hi-status"></div>' +
+        '</div>' +
+        '<div id="hiPreview"></div>';
+    }
+
+    /** เปลี่ยนไฟล์ = ผล preview เดิมใช้ไม่ได้แล้ว ต้องกดอ่านไฟล์ใหม่ก่อนถึงจะยืนยันได้ */
+    function healthImportResetPreview_() {
+      healthImportParsed_ = null;
+      const btn = document.getElementById('hiConfirmBtn');
+      if (btn) btn.disabled = true;
+      const prev = document.getElementById('hiPreview');
+      if (prev) prev.innerHTML = '';
+      healthImportStatus_('');
+    }
+
+    function healthImportParse_() {
+      const year = (document.getElementById('hiYear').value || '').trim();
+      const company = (document.getElementById('hiCompany').value || '').trim();
+      const file = document.getElementById('hiFile').files[0];
+
+      if (!year || !company) { healthImportStatus_('กรุณาระบุปีและบริษัทก่อน', 'err'); return; }
+      if (!file) { healthImportStatus_('กรุณาเลือกไฟล์ .xlsx ก่อน', 'err'); return; }
+
+      healthImportResetPreview_();
+      const parseBtn = document.getElementById('hiParseBtn');
+      parseBtn.disabled = true;
+      healthImportStatus_('กำลังเปิดไฟล์...');
+
+      loadSheetJs_()
+        .then(function () { return healthFileToBase64_(file); })
+        .then(function (base64) {
+          const workbook = XLSX.read(base64, { type: 'base64' });
+          const mapped = healthImportMapWorkbook_(workbook);
+          if (!mapped.records.length) throw new Error('ไม่พบรายชื่อพนักงานในไฟล์ (แถวว่างทั้งหมด หรือจับคู่คอลัมน์ชื่อไม่สำเร็จ)');
+
+          if (mapped.criticalMissing.length) {
+            healthImportStatus_('เตือน: จับคู่คอลัมน์สำคัญไม่เจอ (' + mapped.criticalMissing.join(', ') + ') ผังไฟล์อาจเปลี่ยนไป กรุณาตรวจสอบตารางให้ละเอียดก่อนยืนยัน', 'warn');
+          } else {
+            healthImportStatus_('อ่านไฟล์สำเร็จ พบ ' + mapped.records.length + ' คน — กำลังตรวจสอบว่าซ้ำกับข้อมูลเดิมหรือไม่...');
+          }
+
+          healthImportParsed_ = {
+            year: year, company: company,
+            fileName: file.name, mimeType: file.type, base64File: base64,
+            records: mapped.records
+          };
+
+          google.script.run
+            .withSuccessHandler(function (res) {
+              parseBtn.disabled = false;
+              if (!res || !res.success) {
+                healthImportStatus_((res && res.message) || 'ตรวจสอบข้อมูลซ้ำไม่สำเร็จ', 'err');
+                return;
+              }
+              healthImportRenderPreview_(res);
+              document.getElementById('hiConfirmBtn').disabled = false;
+              healthImportStatus_('พร้อมนำเข้า: เพิ่มใหม่ ' + res.willInsertCount + ' คน / เขียนทับของเดิม ' + res.willOverwriteCount + ' คน — ตรวจสอบตารางด้านล่างก่อนกดยืนยัน', 'ok');
+            })
+            .withFailureHandler(function (err) {
+              parseBtn.disabled = false;
+              healthImportStatus_('ตรวจสอบข้อมูลซ้ำไม่สำเร็จ: ' + err.message, 'err');
+            })
+            .previewHealthImport(sessionToken, year, mapped.records);
+        })
+        .catch(function (err) {
+          parseBtn.disabled = false;
+          healthImportStatus_('เกิดข้อผิดพลาด: ' + err.message, 'err');
+        });
+    }
+
+    function healthImportRenderPreview_(res) {
+      const rows = res.items.map(function (item, idx) {
+        const r = item.incoming;
+        const cls = item.missingName ? 'hi-row-missing' : (item.willOverwrite ? 'hi-row-overwrite' : '');
+        const badge = item.missingName
+          ? '<span class="hi-badge hi-badge-missing">ไม่มีชื่อ-นามสกุล</span>'
+          : (item.willOverwrite
+              ? '<span class="hi-badge hi-badge-overwrite">จะเขียนทับ</span>'
+              : '<span class="hi-badge hi-badge-new">คนใหม่</span>');
+        const compare = item.existing
+          ? 'BMI ' + escapeHtml(String(item.existing.bmi || '-')) + ' → ' + escapeHtml(String(r.bmi || '-')) +
+            ' | ผลรวม ' + escapeHtml(String(item.existing.overallStatus || '-')) + ' → ' + escapeHtml(String(r.overallStatus || '-'))
+          : '';
+        return '<tr class="' + cls + '">' +
+          '<td>' + (idx + 1) + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td>' + escapeHtml(r.firstName) + '</td>' +
+          '<td>' + escapeHtml(r.lastName) + '</td>' +
+          '<td>' + escapeHtml(r.department || '') + '</td>' +
+          '<td>' + escapeHtml(String(r.age || '-')) + '</td>' +
+          '<td>' + escapeHtml(r.gender || '') + '</td>' +
+          '<td>' + escapeHtml(String(r.bmi || '-')) + '</td>' +
+          '<td>' + escapeHtml(String(r.sbp || '-')) + '/' + escapeHtml(String(r.dbp || '-')) + '</td>' +
+          '<td>' + escapeHtml(String(r.fbs || '-')) + '</td>' +
+          '<td>' + escapeHtml(r.overallStatus || '-') + '</td>' +
+          '<td>' + escapeHtml(r.doctorNote || '') + '</td>' +
+          '<td class="hi-compare">' + compare + '</td>' +
+        '</tr>';
+      }).join('');
+
+      document.getElementById('hiPreview').innerHTML =
+        '<div class="panel">' +
+          '<div class="summary-cards">' +
+            summaryCardHtml_(res.totalRows, 'ทั้งหมดในไฟล์ (คน)') +
+            summaryCardHtml_(res.willInsertCount, 'เพิ่มใหม่') +
+            summaryCardHtml_(res.willOverwriteCount, 'เขียนทับของเดิม') +
+            summaryCardHtml_(res.missingNameCount || 0, 'ข้าม (ไม่มีชื่อ)') +
+          '</div>' +
+          '<div class="grid-scroll hi-table-wrap"><table class="report-table"><thead><tr>' +
+            '<th>#</th><th>สถานะ</th><th>ชื่อ</th><th>นามสกุล</th><th>แผนก</th><th>อายุ</th><th>เพศ</th>' +
+            '<th>BMI</th><th>ความดัน</th><th>FBS</th><th>ผลรวม</th><th>คำแนะนำแพทย์</th><th>เทียบกับของเดิม</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '</div>';
+    }
+
+    function healthImportConfirm_() {
+      if (!healthImportParsed_) { healthImportStatus_('กรุณากดปุ่ม "อ่านไฟล์ + ตรวจสอบข้อมูลซ้ำ" ก่อน', 'err'); return; }
+      const state = healthImportParsed_;
+      if (!confirm('ยืนยันนำเข้าข้อมูล ' + state.records.length + ' คน สำหรับปี ' + state.year + '?\nข้อมูลเดิมของคนที่ซ้ำจะถูกเขียนทับและย้อนกลับไม่ได้')) return;
+
+      const confirmBtn = document.getElementById('hiConfirmBtn');
+      const parseBtn = document.getElementById('hiParseBtn');
+      confirmBtn.disabled = true;
+      parseBtn.disabled = true;
+      healthImportStatus_('กำลังบันทึกลงระบบ อาจใช้เวลาสักครู่ (ห้ามปิดหน้านี้)...');
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          parseBtn.disabled = false;
+          if (!res || !res.success) {
+            confirmBtn.disabled = false;
+            healthImportStatus_((res && res.message) || 'บันทึกไม่สำเร็จ', 'err');
+            return;
+          }
+          healthImportParsed_ = null;
+          document.getElementById('hiPreview').innerHTML = '';
+          healthImportStatus_('นำเข้าสำเร็จ! เพิ่มใหม่ ' + res.insertedCount + ' คน / เขียนทับ ' + res.updatedCount + ' คน' +
+            (res.skippedNoName ? ' / ข้าม ' + res.skippedNoName + ' คน (ไม่มีชื่อ-นามสกุล)' : ''), 'ok');
+          showToast('นำเข้าผลตรวจสุขภาพสำเร็จ');
+        })
+        .withFailureHandler(function (err) {
+          parseBtn.disabled = false;
+          confirmBtn.disabled = false;
+          healthImportStatus_('เกิดข้อผิดพลาดตอนบันทึก: ' + err.message, 'err');
+        })
+        .confirmHealthImport(sessionToken, {
+          year: state.year, company: state.company,
+          fileName: state.fileName, mimeType: state.mimeType, base64File: state.base64File,
+          records: state.records
+        });
+    }
+
     function saveUser() {
       const username = document.getElementById('fUsername').value.trim();
       const firstName = document.getElementById('fFirstName').value.trim();
@@ -1858,6 +2243,11 @@ function handlePwaInstallClick_() {
         renderSupervisorReportPage_();
         return;
       }
+      if (supervisorView === 'healthImport') {
+        // หน้านำเข้าใช้ #mainContent ตรงๆ เหมือนหน้าสุขภาพอื่น เพื่อให้พื้นที่ตาราง preview กว้างพอ
+        renderHealthImportPage_('mainContent', "goSupervisorView('menu')");
+        return;
+      }
 
       const el = document.getElementById(target);
       el.innerHTML =
@@ -1876,6 +2266,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openHealthSummaryPage_()">' +
             '<span class="dmb-icon">🩺</span><span class="dmb-label">สุขภาพพนักงาน (ผลตรวจประจำปี)</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'healthImport\')">' +
+            '<span class="dmb-icon">📥</span><span class="dmb-label">นำเข้าผลตรวจสุขภาพประจำปี (จากไฟล์บริษัทตรวจ)</span>' +
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openVehicleHandoverWindow_()">' +
             '<span class="dmb-icon">🚚</span><span class="dmb-label">ใบส่งมอบ / รับคืนรถ</span>' +
