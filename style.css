@@ -1198,3 +1198,7 @@
       .maint-day-picker { grid-template-columns: repeat(2, 1fr); }
       .maint-cal-toolbar { justify-content: center; }
     }
+    .maint-sev-badge { margin-top: 8px; padding: 8px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 700; display: inline-block; }
+    .maint-sev-badge.sev1 { color: var(--success); background: var(--success-soft); }
+    .maint-sev-badge.sev2 { color: var(--amber-dark); background: #FFF4DE; }
+    .maint-sev-badge.sev3 { color: var(--danger); background: var(--danger-soft); }
