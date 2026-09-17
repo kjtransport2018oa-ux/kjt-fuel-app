@@ -458,6 +458,31 @@
     .status-pill.missed { background: var(--danger-soft); color: var(--danger); }
     .status-pill.over { background: #FFF4DE; color: var(--amber-dark); }
     .status-pill.under { background: var(--danger-soft); color: var(--danger); }
+    .status-pill.health-normal { background: var(--success-soft); color: var(--success); }
+    .status-pill.health-high { background: var(--danger-soft); color: var(--danger); }
+    .status-pill.health-low { background: #FFF4DE; color: var(--amber-dark); }
+    .status-pill.health-unknown { background: var(--bg); color: var(--text-soft); }
+
+    .health-metric-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+    .health-metric-row:last-child { border-bottom: none; }
+    .health-metric-label { font-size: 14px; font-weight: 600; color: var(--navy); }
+    .health-metric-ref { font-size: 11.5px; color: var(--text-soft); margin-top: 2px; }
+    .health-metric-value { font-family: 'Prompt', sans-serif; font-size: 17px; font-weight: 700; color: var(--text); text-align: right; flex-shrink: 0; }
+    .health-metric-tip { font-size: 12.5px; color: var(--danger); margin-top: 6px; line-height: 1.5; padding: 8px 10px; background: var(--danger-soft); border-radius: var(--radius-sm); }
+    .health-category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .health-category-chip { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; background: var(--card); }
+    .health-category-chip .cat-name { color: var(--text-soft); display: block; margin-bottom: 2px; }
+    .health-category-chip .cat-status { font-weight: 700; }
+    .health-category-chip.normal .cat-status { color: var(--success); }
+    .health-category-chip.abnormal .cat-status { color: var(--danger); }
+    .health-category-chip.watch .cat-status { color: var(--amber-dark); }
+    .health-year-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+    .health-year-chip { border: 1.5px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 13px; font-weight: 600; background: var(--card); color: var(--text); cursor: pointer; }
+    .health-year-chip.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .health-disclaimer { font-size: 12px; color: var(--text-soft); background: var(--bg); border-radius: var(--radius-sm); padding: 10px 12px; line-height: 1.6; margin-top: 16px; }
+    .health-trend-arrow { font-weight: 700; }
+    .health-trend-arrow.up { color: var(--danger); }
+    .health-trend-arrow.down { color: var(--success); }
 
     /* แถวในตาราง Fuel Variance & Mismatch Report — ไฮไลท์อ่อนๆ ให้เห็นชัดว่าเกิน/ขาดจากแผน */
     tr.variance-row.over td { background: #FFFAF0; }

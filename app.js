@@ -1496,6 +1496,278 @@ function handlePwaInstallClick_() {
         .changeOwnPassword(sessionToken, oldPassword, newPassword1);
     }
 
+    /* =========================================================================
+       สุขภาพของฉัน / สุขภาพพนักงาน (Health Checkup Record & Analytics)
+       ========================================================================= */
+    // ลำดับต้องตรงกับ compareKeys/fieldMap ฝั่ง HealthCheckupAPI.gs เป๊ะ (ใช้ index จับคู่ label กับผลลัพธ์จาก backend)
+    const HEALTH_METRIC_LABELS_ = [
+      'ดัชนีมวลกาย (BMI)', 'ความดันตัวบน (SBP)', 'ความดันตัวล่าง (DBP)', 'ชีพจร',
+      'น้ำตาลในเลือด (FBS)', 'BUN (ไต)', 'Creatinine (ไต)', 'Cholesterol (ไขมัน)', 'Triglyceride (ไขมัน)',
+      'SGOT (ตับ)', 'SGPT (ตับ)', 'Hemoglobin', 'WBC'
+    ];
+    const HEALTH_CATEGORY_FIELDS_ = [
+      { key: 'peStatus', label: 'ตรวจร่างกาย' }, { key: 'cbcStatus', label: 'เม็ดเลือด' },
+      { key: 'uaStatus', label: 'ปัสสาวะ' }, { key: 'ekgStatus', label: 'คลื่นหัวใจ' },
+      { key: 'xrayStatus', label: 'เอกซเรย์ปอด' }, { key: 'biochemStatus', label: 'สารชีวเคมี' },
+      { key: 'drugScreenStatus', label: 'สารเสพติด' }, { key: 'hearingStatus', label: 'การได้ยิน' },
+      { key: 'lungStatus', label: 'สมรรถภาพปอด' }, { key: 'visionStatus', label: 'สายตา' }
+    ];
+
+    let healthCurrentRecords_ = [];
+    let healthCurrentIndex_ = 0;
+    let healthViewingOwn_ = true;
+    let healthTargetName_ = null; // { firstName, lastName } — ใช้ตอน Supervisor ดูของคนอื่น
+
+    function healthStatusPillClass_(status) {
+      if (status === 'normal') return 'health-normal';
+      if (status === 'high') return 'health-high';
+      if (status === 'low') return 'health-low';
+      return 'health-unknown';
+    }
+    function healthStatusText_(status) {
+      if (status === 'normal') return 'ปกติ';
+      if (status === 'high') return 'สูงกว่าเกณฑ์';
+      if (status === 'low') return 'ต่ำกว่าเกณฑ์';
+      return 'ไม่มีข้อมูล';
+    }
+    function healthCategoryClass_(text) {
+      const t = String(text || '').trim();
+      if (t === 'ปกติ') return 'normal';
+      if (t === 'เฝ้าระวัง') return 'watch';
+      if (t) return 'abnormal';
+      return '';
+    }
+
+    /* ---------- ทุก Role: สุขภาพของฉัน (ปุ่มบน topbar) ---------- */
+    function openMyHealthPage_() {
+      healthViewingOwn_ = true;
+      healthTargetName_ = null;
+      const el = document.getElementById('mainContent');
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="renderMain()">← กลับ</button>' +
+        '<div class="panel"><div class="panel-title"><h3>สุขภาพของฉัน — ผลตรวจสุขภาพประจำปี</h3></div>' +
+          '<p class="panel-hint">ข้อมูลเฉพาะของคุณเท่านั้น อ้างอิงจากชื่อ-นามสกุลที่ลงทะเบียนในระบบ</p>' +
+        '</div>' +
+        '<div id="healthPageBody"><div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดข้อมูลสุขภาพ...</p></div></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) { renderHealthPageResult_(res, true); })
+        .withFailureHandler(function (err) {
+          document.getElementById('healthPageBody').innerHTML =
+            '<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getMyHealthCheckup(sessionToken);
+    }
+
+    /* ---------- Supervisor: สุขภาพพนักงาน (ตารางรวมทุกคน) ---------- */
+    function openHealthSummaryPage_() {
+      const el = document.getElementById('mainContent');
+      const curYear = new Date().getFullYear();
+      let yearOptions = '<option value="">ปีล่าสุดของแต่ละคน</option>';
+      for (let y = curYear; y >= curYear - 4; y--) yearOptions += '<option value="' + y + '">' + y + '</option>';
+
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="goSupervisorView(\'menu\')">← กลับเมนูหลัก</button>' +
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>สุขภาพพนักงาน — ผลตรวจสุขภาพประจำปี</h3></div>' +
+          '<p class="panel-hint">การเปิดดูข้อมูลของพนักงานแต่ละคนจะถูกบันทึกไว้ในระบบเพื่อความโปร่งใส</p>' +
+          '<div class="filter-row" style="margin-bottom:0;">' +
+            '<select id="healthSummaryYear" onchange="loadHealthSummary_()">' + yearOptions + '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div id="healthSummaryBody"></div>';
+
+      loadHealthSummary_();
+    }
+
+    function loadHealthSummary_() {
+      const yearEl = document.getElementById('healthSummaryYear');
+      const bodyEl = document.getElementById('healthSummaryBody');
+      const year = yearEl ? yearEl.value : '';
+      bodyEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดข้อมูล...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { bodyEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดไม่สำเร็จ') + '</div>'; return; }
+          if (!res.rows.length) { bodyEl.innerHTML = '<div class="empty-state">ไม่พบข้อมูลผลตรวจสุขภาพ</div>'; return; }
+
+          let html = '<div class="panel"><div class="grid-scroll"><table class="report-table"><thead><tr>' +
+            '<th>ชื่อ-นามสกุล</th><th>แผนก</th><th>ปี</th><th>BMI</th><th>ความดัน</th><th>FBS</th><th>สรุปผล</th><th></th>' +
+            '</tr></thead><tbody>';
+          res.rows.forEach(function (r) {
+            const overallClass = healthCategoryClass_(r.overallStatus);
+            html += '<tr>' +
+              '<td>' + escapeHtml(r.firstName) + ' ' + escapeHtml(r.lastName) + '</td>' +
+              '<td>' + escapeHtml(r.department || '') + '</td>' +
+              '<td>' + escapeHtml(String(r.year)) + '</td>' +
+              '<td>' + escapeHtml(String(r.bmi || '-')) + '</td>' +
+              '<td>' + escapeHtml(String(r.sbp || '-')) + '/' + escapeHtml(String(r.dbp || '-')) + '</td>' +
+              '<td>' + escapeHtml(String(r.fbs || '-')) + '</td>' +
+              '<td><span class="status-pill ' + (overallClass === 'normal' ? 'filled' : overallClass === 'watch' ? 'pending' : 'missed') + '">' + escapeHtml(r.overallStatus || '-') + '</span></td>' +
+              '<td><button type="button" class="btn btn-outline btn-sm" onclick="openEmployeeHealthDetail_(\'' + escAttr(r.firstName) + '\', \'' + escAttr(r.lastName) + '\')">ดูรายละเอียด</button></td>' +
+            '</tr>';
+          });
+          html += '</tbody></table></div></div>';
+          bodyEl.innerHTML = html;
+        })
+        .withFailureHandler(function (err) {
+          bodyEl.innerHTML = '<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getAllEmployeesHealthSummary(sessionToken, year);
+    }
+
+    function openEmployeeHealthDetail_(firstName, lastName) {
+      healthViewingOwn_ = false;
+      healthTargetName_ = { firstName: firstName, lastName: lastName };
+      const el = document.getElementById('mainContent');
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="openHealthSummaryPage_()">← กลับรายชื่อพนักงาน</button>' +
+        '<div class="panel"><div class="panel-title"><h3>สุขภาพของ ' + escapeHtml(firstName) + ' ' + escapeHtml(lastName) + '</h3></div>' +
+          '<p class="panel-hint">การเปิดดูหน้านี้ถูกบันทึกไว้ในระบบแล้ว</p>' +
+        '</div>' +
+        '<div id="healthPageBody"><div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดข้อมูลสุขภาพ...</p></div></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) { renderHealthPageResult_(res, false); })
+        .withFailureHandler(function (err) {
+          document.getElementById('healthPageBody').innerHTML =
+            '<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getEmployeeHealthDetail(sessionToken, firstName, lastName);
+    }
+
+    /* ---------- ส่วน render ที่ใช้ร่วมกันทั้ง "สุขภาพของฉัน" และ "ดูรายละเอียดพนักงาน" ---------- */
+    function renderHealthPageResult_(res, isOwn) {
+      const bodyEl = document.getElementById('healthPageBody');
+      if (!res.success) { bodyEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดไม่สำเร็จ') + '</div>'; return; }
+      if (!res.hasData) {
+        bodyEl.innerHTML = '<div class="empty-state">ยังไม่มีข้อมูลผลตรวจสุขภาพในระบบ' + (isOwn ? '' : 'สำหรับคนนี้') + '</div>';
+        return;
+      }
+      healthCurrentRecords_ = res.records;
+      healthCurrentIndex_ = 0;
+      renderHealthRecordView_();
+    }
+
+    function renderHealthRecordView_() {
+      const bodyEl = document.getElementById('healthPageBody');
+      const records = healthCurrentRecords_;
+      const record = records[healthCurrentIndex_];
+      if (!record) { bodyEl.innerHTML = '<div class="empty-state">ไม่พบข้อมูล</div>'; return; }
+
+      let html = '';
+
+      // ชิปเลือกปี (ถ้ามีมากกว่า 1 ปี)
+      if (records.length > 1) {
+        html += '<div class="health-year-chips">';
+        records.forEach(function (r, i) {
+          html += '<button type="button" class="health-year-chip' + (i === healthCurrentIndex_ ? ' active' : '') + '" onclick="selectHealthYear_(' + i + ')">ปี ' + escapeHtml(String(r.year)) + '</button>';
+        });
+        html += '</div>';
+      }
+
+      // สรุปย่อ
+      html += '<div class="summary-cards" style="grid-template-columns:repeat(3,1fr);">' +
+        summaryCardHtml_(record.bmi || '-', 'BMI') +
+        summaryCardHtml_((record.sbp || '-') + '/' + (record.dbp || '-'), 'ความดัน (mmHg)') +
+        summaryCardHtml_(record.fbs || '-', 'น้ำตาล FBS (mg/dl)') +
+      '</div>';
+
+      // ตารางค่าตัวชี้วัดพร้อมสถานะ + คำแนะนำ
+      html += '<div class="panel"><div class="panel-title"><h3>ผลตรวจปี ' + escapeHtml(String(record.year)) + ' (บริษัท ' + escapeHtml(record.company || '-') + ')</h3></div>';
+      (record.analysis || []).forEach(function (item, i) {
+        const label = HEALTH_METRIC_LABELS_[i] || item.label;
+        const pillClass = healthStatusPillClass_(item.status);
+        const refText = (item.status !== 'unknown' && (item.min !== undefined || item.max !== undefined))
+          ? 'เกณฑ์ปกติ: ' + (item.min !== undefined && item.min !== 0 ? item.min : (item.min === 0 ? '0' : '')) + (item.min !== undefined && item.max !== undefined ? ' - ' : '') + (item.max !== undefined ? item.max : '') + ' ' + (item.unit || '')
+          : '';
+        html += '<div class="health-metric-row">' +
+          '<div>' +
+            '<div class="health-metric-label">' + escapeHtml(label) + '</div>' +
+            (refText ? '<div class="health-metric-ref">' + escapeHtml(refText) + '</div>' : '') +
+          '</div>' +
+          '<div style="text-align:right;">' +
+            '<div class="health-metric-value">' + (item.value === '' || item.value === null || item.value === undefined ? '-' : escapeHtml(String(item.value)) + ' ' + escapeHtml(item.unit || '')) + '</div>' +
+            '<span class="status-pill ' + pillClass + '">' + healthStatusText_(item.status) + '</span>' +
+          '</div>' +
+        '</div>' +
+        (item.tip ? '<div class="health-metric-tip">💡 ' + escapeHtml(item.tip) + '</div>' : '');
+      });
+      html += '</div>';
+
+      // สถานะรายหมวด
+      html += '<div class="panel"><div class="panel-title"><h3>สรุปผลรายหมวดการตรวจ</h3></div><div class="health-category-grid">';
+      HEALTH_CATEGORY_FIELDS_.forEach(function (f) {
+        const val = record[f.key] || '-';
+        html += '<div class="health-category-chip ' + healthCategoryClass_(val) + '">' +
+          '<span class="cat-name">' + escapeHtml(f.label) + '</span><span class="cat-status">' + escapeHtml(val) + '</span>' +
+        '</div>';
+      });
+      html += '</div>';
+      if (record.doctorNote) {
+        html += '<p class="health-metric-ref" style="margin-top:12px;"><b>ความเห็นแพทย์:</b> ' + escapeHtml(record.doctorNote) + '</p>';
+      }
+      html += '</div>';
+
+      // ปุ่มเทียบปีก่อนหน้า (มีถ้ามีมากกว่า 1 ปี)
+      if (records.length > 1) {
+        html += '<button class="btn btn-outline" style="width:auto;" onclick="loadHealthYoY_()">📊 เทียบกับปีก่อนหน้า</button>' +
+          '<div id="healthYoYArea" style="margin-top:12px;"></div>';
+      }
+
+      html += '<div class="health-disclaimer">⚠ ข้อมูลนี้เป็นการเทียบค่ากับเกณฑ์อ้างอิงทางการแพทย์ทั่วไปโดยระบบอัตโนมัติ ไม่ใช่คำวินิจฉัยจากแพทย์ หากผลตรวจผิดปกติควรปรึกษาแพทย์เพื่อการวินิจฉัยและรักษาที่ถูกต้องเสมอ</div>';
+
+      bodyEl.innerHTML = html;
+    }
+
+    function selectHealthYear_(index) {
+      healthCurrentIndex_ = index;
+      renderHealthRecordView_();
+    }
+
+    function loadHealthYoY_() {
+      const areaEl = document.getElementById('healthYoYArea');
+      if (!areaEl) return;
+      areaEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังเปรียบเทียบข้อมูล...</p></div>';
+
+      const args = healthViewingOwn_
+        ? [sessionToken, null, null]
+        : [sessionToken, healthTargetName_.firstName, healthTargetName_.lastName];
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { areaEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดไม่สำเร็จ') + '</div>'; return; }
+          if (!res.yoy) { areaEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.yoyMessage || 'ยังไม่มีข้อมูลพอเปรียบเทียบ') + '</div>'; return; }
+          renderHealthYoY_(res, areaEl);
+        })
+        .withFailureHandler(function (err) {
+          areaEl.innerHTML = '<div class="empty-state">โหลดข้อมูลไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getHealthCheckupYoY.apply(null, args);
+    }
+
+    function renderHealthYoY_(res, areaEl) {
+      let html = '<div class="panel"><div class="panel-title"><h3>เทียบปี ' + escapeHtml(String(res.previousYear)) + ' vs ' + escapeHtml(String(res.currentYear)) + '</h3></div>' +
+        '<div class="grid-scroll"><table class="report-table"><thead><tr>' +
+        '<th>รายการ</th><th>ปี ' + escapeHtml(String(res.previousYear)) + '</th><th>ปี ' + escapeHtml(String(res.currentYear)) + '</th><th>ส่วนต่าง</th>' +
+        '</tr></thead><tbody>';
+      res.yoy.forEach(function (item, i) {
+        const label = HEALTH_METRIC_LABELS_[i] || item.key;
+        let arrow = '';
+        if (item.trend === 'up') arrow = '<span class="health-trend-arrow up">▲</span>';
+        else if (item.trend === 'down') arrow = '<span class="health-trend-arrow down">▼</span>';
+        else if (item.trend === 'same') arrow = '‒';
+        html += '<tr>' +
+          '<td>' + escapeHtml(label) + '</td>' +
+          '<td>' + escapeHtml(item.previousValue === '' || item.previousValue == null ? '-' : String(item.previousValue)) + '</td>' +
+          '<td>' + escapeHtml(item.currentValue === '' || item.currentValue == null ? '-' : String(item.currentValue)) + '</td>' +
+          '<td>' + arrow + ' ' + (item.diff === null ? '-' : escapeHtml((item.diff > 0 ? '+' : '') + item.diff)) + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+      areaEl.innerHTML = html;
+    }
+
     function saveUser() {
       const username = document.getElementById('fUsername').value.trim();
       const firstName = document.getElementById('fFirstName').value.trim();
@@ -1601,6 +1873,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'map\')">' +
             '<span class="dmb-icon">📍</span><span class="dmb-label">แผนที่ส่งสินค้า / จุดเสี่ยง</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="openHealthSummaryPage_()">' +
+            '<span class="dmb-icon">🩺</span><span class="dmb-label">สุขภาพพนักงาน (ผลตรวจประจำปี)</span>' +
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openVehicleHandoverWindow_()">' +
             '<span class="dmb-icon">🚚</span><span class="dmb-label">ใบส่งมอบ / รับคืนรถ</span>' +
