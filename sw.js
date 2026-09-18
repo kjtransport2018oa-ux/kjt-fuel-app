@@ -3,6 +3,41 @@
 // สำคัญ: ไม่แตะ request ที่เป็น POST เลย (คำขอที่ยิงไปหา Apps Script API ทั้งหมดเป็น POST)
 // เพื่อไม่ให้ไปยุ่งกับการเชื่อมต่อฐานข้อมูลจริงโดยไม่ตั้งใจ
 
+// Firebase Cloud Messaging — รับ push ตอนแอปอยู่เบื้องหลัง/ปิดแท็บ
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: 'AIzaSyA2JMm1AY4kh_tt9--4d6_trgjOAm-a6iA',
+  authDomain: 'kjt-hub.firebaseapp.com',
+  projectId: 'kjt-hub',
+  storageBucket: 'kjt-hub.firebasestorage.app',
+  messagingSenderId: '101679191796',
+  appId: '1:101679191796:web:f0c3e3c8ce78f2bb74b0a1'
+});
+
+const messaging = firebase.messaging();
+messaging.onBackgroundMessage(function (payload) {
+  const n = payload.notification || {};
+  self.registration.showNotification(n.title || 'KJT HUB', {
+    body: n.body || '',
+    icon: '/icon/Icon-192.png',
+    badge: '/icon/Icon-192.png',
+    data: payload.data || {}
+  });
+});
+
+// แตะที่ notification แล้วเด้งเปิด/โฟกัสแอปที่เปิดอยู่ (ถ้ายังไม่มีแท็บเปิดอยู่ ค่อยเปิดใหม่)
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
+      for (const c of clientList) { if ('focus' in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow('./');
+    })
+  );
+});
+
 const CACHE_NAME = 'kjt-hub-shell-v15'; // v15: แก้บั๊กปฏิทินช่าง/หัวหน้างานไม่เห็นคิวที่จอง — บังคับล้าง cache เดิมทุกเครื่อง
 const APP_SHELL = [
   './',
