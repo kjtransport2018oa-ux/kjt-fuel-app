@@ -412,22 +412,34 @@ function handlePwaInstallClick_() {
       document.getElementById('loginPassword').value = '';
     }
 
+    /** ซ่อน splash แล้วเผยหน้า Login ปกติ — เรียกทุกครั้งที่รู้ผลแล้วว่า auto-login ผ่านหรือไม่ผ่าน
+     *  (ลบคลาสที่หัวสคริปต์ใน index.html ติดไว้ก่อน paint กันหน้า Login กะพริบตอนมี session จดจำไว้) */
+    function maintExitSplash_() {
+      document.documentElement.classList.remove('kjt-restoring-session');
+    }
+
     function tryAutoLogin() {
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) || 'null'); } catch (e) { saved = null; }
-      if (!saved || !saved.token) return;
+      if (!saved || !saved.token) { maintExitSplash_(); return; } // ไม่มี session จดจำไว้ — ไม่เคยติดคลาส splash ไว้ตั้งแต่แรกอยู่แล้ว แต่เรียกกันเหนียวไว้เผื่อกรณีแปลกๆ
 
       google.script.run
         .withSuccessHandler(function (res) {
           if (res.success) {
             sessionToken = saved.token;
             currentUser = res.user;
+            maintExitSplash_();
             enterApp();
           } else {
             try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* ignore */ }
+            maintExitSplash_(); // token หมดอายุ/ใช้ไม่ได้แล้ว — เผยหน้า Login ให้กรอกใหม่
           }
         })
-        .withFailureHandler(function () { /* เงียบไว้ ให้ผู้ใช้ล็อกอินตามปกติ */ })
+        .withFailureHandler(function () {
+          // เชื่อมต่อไม่สำเร็จ (เน็ตหลุด/เซิร์ฟเวอร์ช้าเกิน timeout) — ไม่ลบ token ทิ้ง เผื่อเน็ตกลับมาแล้ว auto-login รอบหน้ายังใช้ต่อได้
+          // แต่ต้องเผยหน้า Login ให้กรอกเองไปก่อน ไม่งั้นจะค้างที่ splash ตลอดไป
+          maintExitSplash_();
+        })
         .checkSession(saved.token);
     }
 
@@ -2293,10 +2305,10 @@ function handlePwaInstallClick_() {
 
       let actions = '';
       if (canEdit && st.next) {
-        actions += '<button type="button" class="maint-act primary" onclick="maintUpdateStatus_(\'' + b.id + '\',\'' + st.next + '\')">' + st.nextLabel + '</button>';
+        actions += '<button type="button" class="maint-act primary" onclick="maintUpdateStatus_(this,\'' + b.id + '\',\'' + st.next + '\')">' + st.nextLabel + '</button>';
       }
       if (canEdit) {
-        actions += '<button type="button" class="maint-act" onclick="maintOpenNote_(\'' + b.id + '\',\'' + b.status + '\')">📝 บันทึกช่าง</button>';
+        actions += '<button type="button" class="maint-act" onclick="maintOpenNote_(this,\'' + b.id + '\',\'' + b.status + '\')">📝 บันทึกช่าง</button>';
       }
 
       return '<div class="maint-job ' + sev.cls + '">' +
@@ -2315,29 +2327,56 @@ function handlePwaInstallClick_() {
       '</div>';
     }
 
-    function maintUpdateStatus_(id, status) {
+    /** ปิดปุ่มทั้งกลุ่ม (การ์ดเดียวกัน) ระหว่างรอผลจากเซิร์ฟเวอร์ กันกดซ้ำ/กดปุ่มอื่นของการ์ดเดียวกันพร้อมกัน
+     *  แล้วเปลี่ยนปุ่มที่กดเป็นสปินเนอร์ + ข้อความ ให้เห็นชัดว่ากำลังทำงานอยู่ ไม่ใช่ค้าง */
+    function maintSetActionsBusy_(clickedBtn, busyText) {
+      if (!clickedBtn) return;
+      const group = clickedBtn.closest('.mj-actions') || clickedBtn.parentElement;
+      const buttons = group ? group.querySelectorAll('button') : [clickedBtn];
+      buttons.forEach(function (b) {
+        if (b.dataset.origHtml === undefined) b.dataset.origHtml = b.innerHTML;
+        b.disabled = true;
+      });
+      clickedBtn.innerHTML = '<span class="spinner"></span>' + busyText;
+    }
+
+    /** คืนปุ่มกลับเป็นปกติ — เรียกเฉพาะตอนล้มเหลว/error เท่านั้น เพราะตอนสำเร็จ maintLoadCalendar_()
+     *  จะ re-render การ์ดใหม่ทั้งหมดจากข้อมูลล่าสุดอยู่แล้ว (ปุ่มเดิมถูกแทนที่ไปเอง ไม่ต้องคืนมือ) */
+    function maintClearActionsBusy_(clickedBtn) {
+      if (!clickedBtn) return;
+      const group = clickedBtn.closest('.mj-actions') || clickedBtn.parentElement;
+      const buttons = group ? group.querySelectorAll('button') : [clickedBtn];
+      buttons.forEach(function (b) {
+        b.disabled = false;
+        if (b.dataset.origHtml !== undefined) { b.innerHTML = b.dataset.origHtml; delete b.dataset.origHtml; }
+      });
+    }
+
+    function maintUpdateStatus_(btn, id, status) {
+      maintSetActionsBusy_(btn, 'กำลังอัปเดต...');
       google.script.run
         .withSuccessHandler(function (res) {
-          if (!res || !res.success) { showToast((res && res.message) || 'อัปเดตไม่สำเร็จ', true); return; }
+          if (!res || !res.success) { maintClearActionsBusy_(btn); showToast((res && res.message) || 'อัปเดตไม่สำเร็จ', true); return; }
           showToast('อัปเดตสถานะแล้ว');
           maintLoadCalendar_();
         })
-        .withFailureHandler(function (err) { showToast('อัปเดตไม่สำเร็จ: ' + err.message, true); })
+        .withFailureHandler(function (err) { maintClearActionsBusy_(btn); showToast('อัปเดตไม่สำเร็จ: ' + err.message, true); })
         .updateMaintenanceStatus(sessionToken, id, status, '', null);
     }
 
     /** บันทึกของช่าง + แก้เวลาที่ใช้จริง (งานระดับ 3 มักใช้เวลาต่างจากที่ประเมินไว้) */
-    function maintOpenNote_(id, currentStatus) {
+    function maintOpenNote_(btn, id, currentStatus) {
       const note = prompt('บันทึกของช่าง (สิ่งที่ทำ / อะไหล่ที่เปลี่ยน / สิ่งที่ต้องตามต่อ):', '');
       if (note === null) return;
       const mins = prompt('เวลาที่ใช้จริง (นาที) — เว้นว่างถ้าใช้ตามที่ประเมินไว้:', '');
+      maintSetActionsBusy_(btn, 'กำลังบันทึก...');
       google.script.run
         .withSuccessHandler(function (res) {
-          if (!res || !res.success) { showToast((res && res.message) || 'บันทึกไม่สำเร็จ', true); return; }
+          if (!res || !res.success) { maintClearActionsBusy_(btn); showToast((res && res.message) || 'บันทึกไม่สำเร็จ', true); return; }
           showToast('บันทึกเรียบร้อย');
           maintLoadCalendar_();
         })
-        .withFailureHandler(function (err) { showToast('บันทึกไม่สำเร็จ: ' + err.message, true); })
+        .withFailureHandler(function (err) { maintClearActionsBusy_(btn); showToast('บันทึกไม่สำเร็จ: ' + err.message, true); })
         .updateMaintenanceStatus(sessionToken, id, currentStatus || 'Pending', note, mins ? Number(mins) : null);
     }
 

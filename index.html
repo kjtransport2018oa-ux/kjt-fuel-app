@@ -23,10 +23,27 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <!-- กันหน้า Login แวบขึ้นมาก่อนเด้งเข้าเมนู ตอนมี session ที่ "จดจำไว้" อยู่แล้ว —
+       ต้องรันตรงนี้ใน <head> ก่อน body จะ parse เพื่อติดคลาสให้ทันก่อนเบราว์เซอร์ paint หน้า Login
+       (เทคนิคเดียวกับสคริปต์กัน dark-mode กะพริบ) ไม่งั้นต้องรอ JS ด้านล่างทำงานหลัง DOM โหลดเสร็จ ซึ่งช้าเกินไปแล้ว */
+  <script>
+    (function () {
+      try {
+        var saved = JSON.parse(localStorage.getItem('kjt_fuel_remember_session') || 'null');
+        if (saved && saved.token) document.documentElement.classList.add('kjt-restoring-session');
+      } catch (e) { /* localStorage อ่านไม่ได้ก็ปล่อยไป ให้ไปโชว์หน้า Login ตามปกติ */ }
+    })();
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js';document.head.appendChild(s);"></script>
 </head>
 <body>
+<!-- ===================== SPLASH (ระหว่างเช็ค session ที่จดจำไว้) ===================== -->
+  <div id="splashScreen">
+    <div class="spinner-lg"></div>
+    <p>กำลังเข้าสู่ระบบ...</p>
+  </div>
+
 <!-- ===================== LOGIN SCREEN ===================== -->
   <div id="loginScreen">
     <div class="login-card">

@@ -38,6 +38,31 @@
       *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
     }
 
+    /* ---------- Splash (ระหว่างเช็ค session ที่จดจำไว้ก่อนเด้งเข้าเมนู) ---------- */
+    #splashScreen {
+      display: none;
+      min-height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background:
+        radial-gradient(120% 90% at 12% -10%, #223466 0%, transparent 55%),
+        linear-gradient(165deg, var(--navy) 0%, #060B18 100%);
+      color: rgba(255,255,255,.85);
+    }
+    #splashScreen .spinner-lg {
+      width: 34px; height: 34px;
+      border: 3.5px solid rgba(255,255,255,.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    #splashScreen p { margin: 0; font-size: 14px; animation: loadingPulse 1.4s ease-in-out infinite; }
+    /* มี session ที่จดจำไว้ (ยังไม่รู้ผลว่ายัง valid มั้ย) — โชว์ splash แทน ซ่อน Login ไว้ก่อน กันหน้า Login กะพริบ */
+    html.kjt-restoring-session #loginScreen { display: none; }
+    html.kjt-restoring-session #splashScreen { display: flex; }
+
     /* ---------- Login Screen ---------- */
     #loginScreen {
       min-height: 100vh;
@@ -1193,6 +1218,8 @@
       cursor: pointer;
     }
     .maint-act.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .maint-act:disabled { opacity: .65; cursor: not-allowed; }
+    .maint-act:not(.primary) .spinner { border-color: rgba(16,27,51,.25); border-top-color: var(--navy); } /* ปุ่มพื้นขาว สปินเนอร์ขาวจะมองไม่เห็น เลยสลับเป็นสีกรม */
 
     @media (max-width: 480px) {
       .maint-day-picker { grid-template-columns: repeat(2, 1fr); }
