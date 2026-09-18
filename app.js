@@ -1793,6 +1793,8 @@ function handlePwaInstallClick_() {
     let maintFormData_ = null;
     let maintSeverity_ = 0;
     let maintSelectedDate_ = '';
+    let maintSelectedSlot_ = '';   // เฟส 3: รอบเวลาที่เลือก (HH:MM) — ใช้เฉพาะ severity 1/2
+    let maintLastSlotsRes_ = null; // เฟส 3: cache ผลลัพธ์รอบเวลาล่าสุด ไว้ re-render ตอนกดเลือก โดยไม่ต้องยิง API ซ้ำ
     let maintCalMode_ = 'day';      // day | week
     let maintCalAnchor_ = '';       // YYYY-MM-DD ของวันที่กำลังดู
     let maintCalBack_ = '';
@@ -1838,6 +1840,8 @@ function handlePwaInstallClick_() {
           maintFormData_ = res;
           maintSeverity_ = 0;
           maintSelectedDate_ = '';
+          maintSelectedSlot_ = '';
+          maintLastSlotsRes_ = null;
           body.innerHTML = maintBookingFormHtml_(res) + maintMyBookingsHtml_(res.myBookings);
         })
         .withFailureHandler(function (err) {
@@ -1885,6 +1889,10 @@ function handlePwaInstallClick_() {
           '</div>' +
         '</div>' +
 
+        '<div class="field"><label>รอบเวลาที่ต้องการเข้าซ่อม</label>' +
+          '<div id="maintSlotPicker" class="maint-slot-picker" style="display:none;"></div>' +
+        '</div>' +
+
         '<div id="maintBookingMsg" class="hi-status"></div>' +
         '<button type="button" class="btn btn-primary" id="maintSubmitBtn" onclick="maintSubmitBooking_()">ยืนยันจองคิวซ่อม</button>' +
       '</div>';
@@ -1900,7 +1908,11 @@ function handlePwaInstallClick_() {
     function maintOnCategoryChange_() {
       const cat = document.getElementById('maintCategory').value;
       const badge = document.getElementById('maintSevBadge');
+      const slotHolder = document.getElementById('maintSlotPicker');
       maintSelectedDate_ = '';
+      maintSelectedSlot_ = '';
+      maintLastSlotsRes_ = null;
+      if (slotHolder) { slotHolder.style.display = 'none'; slotHolder.innerHTML = ''; }
 
       if (!cat || !maintFormData_) {
         maintSeverity_ = 0;
@@ -1951,6 +1963,7 @@ function handlePwaInstallClick_() {
 
     function maintSelectDay_(iso) {
       maintSelectedDate_ = iso;
+      maintSelectedSlot_ = '';
       maintRenderDayPicker_();
       const day = maintFormData_.days.filter(function (d) { return d.dateISO === iso; })[0];
       const need = maintFormData_.severityMinutes[maintSeverity_];
@@ -1959,6 +1972,65 @@ function handlePwaInstallClick_() {
       } else {
         maintMsg_('');
       }
+      maintLoadSlots_(iso);
+    }
+
+    /** เฟส 3: โหลดรอบเวลาที่ว่างของวัน+หมวดที่เลือก — severity 3 (แดง) ข้ามไปเลย ไม่ต้องเลือกเวลา */
+    function maintLoadSlots_(iso) {
+      const holder = document.getElementById('maintSlotPicker');
+      if (!holder) return;
+      maintLastSlotsRes_ = null;
+
+      if (maintSeverity_ === 3) {
+        holder.style.display = 'block';
+        holder.innerHTML = '<div class="maint-slot-emergency">🔴 งานฉุกเฉิน ไม่ต้องเลือกเวลา ระบบจะจัดให้เป็นลำดับแรกของวันอัตโนมัติ</div>';
+        return;
+      }
+
+      const category = document.getElementById('maintCategory').value;
+      holder.style.display = 'block';
+      holder.innerHTML = '<div class="loading-state" style="padding:16px;"><div class="spinner-lg"></div></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          // กันเคส user เปลี่ยนวัน/หมวดหมู่ไปแล้วระหว่างที่ request เก่ายังโหลดไม่เสร็จ
+          if (maintSelectedDate_ !== iso || document.getElementById('maintCategory').value !== category) return;
+          maintLastSlotsRes_ = res;
+          maintRenderSlotPicker_();
+        })
+        .withFailureHandler(function (err) {
+          holder.innerHTML = '<div class="empty-state">โหลดรอบเวลาไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getAvailableMaintenanceSlots(sessionToken, iso, category);
+    }
+
+    function maintRenderSlotPicker_() {
+      const holder = document.getElementById('maintSlotPicker');
+      const res = maintLastSlotsRes_;
+      if (!holder || !res) return;
+      if (!res.success) {
+        holder.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดรอบเวลาไม่สำเร็จ') + '</div>';
+        return;
+      }
+      if (!res.slots.length) {
+        holder.innerHTML = '<div class="maint-nofree">วันนี้ไม่มีรอบเวลาว่างพอสำหรับงานนี้แล้ว กรุณาเลือกวันอื่น</div>';
+        return;
+      }
+      holder.innerHTML = '<div class="maint-slot-grid">' +
+        res.slots.map(function (s) {
+          return '<button type="button" class="maint-slot' +
+              (!s.available ? ' full' : '') + (maintSelectedSlot_ === s.start ? ' active' : '') + '"' +
+              (!s.available ? ' disabled' : ' onclick="maintSelectSlot_(\'' + s.start + '\')"') + '>' +
+            s.start + '–' + s.end +
+          '</button>';
+        }).join('') +
+      '</div>';
+    }
+
+    function maintSelectSlot_(start) {
+      maintSelectedSlot_ = start;
+      maintRenderSlotPicker_();
+      maintMsg_('');
     }
 
     function maintMsg_(text, kind) {
@@ -1978,6 +2050,7 @@ function handlePwaInstallClick_() {
       if (!category) { maintMsg_('กรุณาเลือกหมวดหมู่อาการเสีย', 'err'); return; }
       if (!symptom) { maintMsg_('กรุณาพิมพ์รายละเอียดอาการที่พบ', 'err'); return; }
       if (!maintSelectedDate_) { maintMsg_('กรุณาเลือกวันที่ต้องการเข้าซ่อม', 'err'); return; }
+      if (maintSeverity_ !== 3 && !maintSelectedSlot_) { maintMsg_('กรุณาเลือกรอบเวลาที่ต้องการเข้าซ่อม', 'err'); return; }
 
       const btn = document.getElementById('maintSubmitBtn');
       btn.disabled = true;
@@ -1998,7 +2071,8 @@ function handlePwaInstallClick_() {
         })
         .createMaintenanceBooking(sessionToken, {
           dateISO: maintSelectedDate_, plateNumber: plate,
-          category: category, symptom: symptom
+          category: category, symptom: symptom,
+          slotStart: maintSeverity_ === 3 ? '' : maintSelectedSlot_
         });
     }
 

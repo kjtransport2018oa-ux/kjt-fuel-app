@@ -1204,3 +1204,32 @@
 .maint-sev-badge.sev1 { color: var(--success); background: var(--success-soft); }
 .maint-sev-badge.sev2 { color: var(--amber-dark); background: #FFF4DE; }
 .maint-sev-badge.sev3 { color: var(--danger); background: var(--danger-soft); }
+
+/* เฟส 3: เลือกรอบเวลา (Time slot picker) */
+.maint-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.maint-slot {
+  text-align: center;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  padding: 10px 8px;
+  cursor: pointer;
+  font-family: 'Sarabun', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--navy);
+}
+.maint-slot.active { border-color: var(--navy); background: var(--navy); color: #fff; }
+.maint-slot.full { opacity: .4; cursor: not-allowed; background: var(--bg); text-decoration: line-through; }
+.maint-slot-emergency {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
