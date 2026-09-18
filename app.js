@@ -206,9 +206,15 @@ function maintInitPush_() {
     const messaging = firebase.messaging();
 
     // ข้อความ push ตอนแอปเปิดอยู่ตรงหน้า (foreground) — sw.js จะจัดการเฉพาะตอนแอปอยู่เบื้องหลังเท่านั้น
+    // อ่านจาก payload.data เป็นหลัก (ฝั่งเซิร์ฟเวอร์ส่งเป็น data-only message ล้วนๆ แล้ว เพื่อกันแจ้งเตือน
+    // ซ้อน 2 อัน — ดูรายละเอียดที่ fcmSendToTokens_ ใน MaintenancePush.gs) รองรับ payload.notification ไว้เผื่อ
+    // เป็น fallback ถ้าวันหลังมีจุดอื่นส่งมาแบบเก่าอีก
     messaging.onMessage(function (payload) {
-      const n = payload && payload.notification;
-      if (n) showToast((n.title || '') + (n.body ? ' — ' + n.body : ''));
+      const d = (payload && payload.data) || {};
+      const n = (payload && payload.notification) || {};
+      const title = d.title || n.title || '';
+      const body = d.body || n.body || '';
+      if (title || body) showToast(title + (body ? ' — ' + body : ''));
     });
 
     if (Notification.permission === 'denied') return; // เคยกดปฏิเสธไว้ก่อนแล้ว ไม่รบกวนซ้ำ
