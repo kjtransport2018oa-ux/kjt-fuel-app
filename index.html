@@ -25,7 +25,26 @@
   <link rel="stylesheet" href="style.css">
   <!-- กันหน้า Login แวบขึ้นมาก่อนเด้งเข้าเมนู ตอนมี session ที่ "จดจำไว้" อยู่แล้ว —
        ต้องรันตรงนี้ใน <head> ก่อน body จะ parse เพื่อติดคลาสให้ทันก่อนเบราว์เซอร์ paint หน้า Login
-       (เทคนิคเดียวกับสคริปต์กัน dark-mode กะพริบ) ไม่งั้นต้องรอ JS ด้านล่างทำงานหลัง DOM โหลดเสร็จ ซึ่งช้าเกินไปแล้ว */
+       (เทคนิคเดียวกับสคริปต์กัน dark-mode กะพริบ) ไม่งั้นต้องรอ JS ด้านล่างทำงานหลัง DOM โหลดเสร็จ ซึ่งช้าเกินไปแล้ว
+       สำคัญ: กฎ CSS ด้านล่างนี้ต้องเป็น <style> ฝังตรงในหน้า (inline) ไม่ใช่พึ่ง style.css ไฟล์แยก —
+       เพราะ style.css โหลดจากไฟล์ภายนอก ถ้าเน็ตช้า (เช่น สัญญาณต่างจังหวัด) เบราว์เซอร์บางตัวอาจ paint
+       เฟรมแรกไปก่อนที่ style.css จะโหลดเสร็จ ทำให้เห็นฟอร์ม Login โผล่มาแวบหนึ่งก่อนที่กฎซ่อนจะมีผล
+       (นี่คือสาเหตุจริงของอาการ "หน้า Login กะพริบ" ที่ยังเจอแม้ตั้งค่าจดจำการเข้าสู่ระบบไว้แล้ว) -->
+  <style>
+    html.kjt-restoring-session #loginScreen { display: none !important; }
+    html.kjt-restoring-session #splashScreen { display: flex !important; }
+    #splashScreen {
+      display: none;
+      min-height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: linear-gradient(165deg, #101B33 0%, #060B18 100%);
+      color: rgba(255,255,255,.85);
+      font-family: 'Sarabun', sans-serif;
+    }
+  </style>
   <script>
     (function () {
       try {
@@ -34,8 +53,8 @@
       } catch (e) { /* localStorage อ่านไม่ได้ก็ปล่อยไป ให้ไปโชว์หน้า Login ตามปกติ */ }
     })();
   </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js';document.head.appendChild(s);"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js';document.head.appendChild(s);"></script>
 </head>
 <body>
 <!-- ===================== SPLASH (ระหว่างเช็ค session ที่จดจำไว้) ===================== -->
