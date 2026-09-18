@@ -40,6 +40,7 @@ messaging.onBackgroundMessage(function (payload) {
     badge: 'icon/Icon-192.png',
     tag: d.bookingId ? ('maint-' + d.bookingId) : undefined, // กันแจ้งเตือนซ้อนหลายอันถ้า FCM ส่งข้อความเดิมมาซ้ำ
     requireInteraction: isUrgent,           // งานสีแดง/ฉุกเฉิน: ค้างไว้จนกว่าจะกดปิดเอง ไม่หายไปเงียบๆ
+    silent: false,
     vibrate: isUrgent ? [300, 100, 300, 100, 300] : [150],
     data: { url: d.url || './', bookingId: d.bookingId || '' }
   });
