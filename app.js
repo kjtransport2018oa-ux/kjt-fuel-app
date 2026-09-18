@@ -180,6 +180,70 @@ function trySyncOfflineQueue_(manual) {
 window.addEventListener('online', function () { trySyncOfflineQueue_(false); });
 setInterval(function () { if (navigator.onLine) trySyncOfflineQueue_(false); }, 30000); // เผื่อกรณี browser ไม่ยิง event 'online' ตรงๆ (บาง Android WebView)
 
+/* =========================================================================
+   PUSH NOTIFICATION (Phase 4) — Firebase Cloud Messaging
+   แจ้งเตือนช่างทันทีที่มีงานแจ้งซ่อมใหม่เข้า (สีแดง = แจ้งแบบสำคัญ) และแจ้งคนขับทันทีที่รถซ่อมเสร็จ
+   ทำงานผ่าน Firebase SDK (โหลดจาก CDN ใน index.html) + Service Worker เดิม (sw.js) ที่เพิ่ม Firebase Messaging เข้าไป
+   ========================================================================= */
+const MAINT_FCM_CONFIG_ = {
+  apiKey: 'AIzaSyA2JMm1AY4kh_tt9--4d6_trgjOAm-a6iA',
+  authDomain: 'kjt-hub.firebaseapp.com',
+  projectId: 'kjt-hub',
+  storageBucket: 'kjt-hub.firebasestorage.app',
+  messagingSenderId: '101679191796',
+  appId: '1:101679191796:web:f0c3e3c8ce78f2bb74b0a1'
+};
+const MAINT_VAPID_KEY_ = 'BJMCMZzRckMVkd-x-wyiRsaYq8ceT5KsmImzc59NOy47aQSgpp8GBMM2QG4SS4cxyX30IyPy74jxUp03_l0edqw';
+const MAINT_FCM_TOKEN_KEY_ = 'kjtHub_fcmToken_v1'; // เก็บ token ปัจจุบันไว้ในเครื่อง เผื่อต้องถอนตอน logout
+
+/** ขอสิทธิ์แจ้งเตือน + ลงทะเบียน FCM token — เรียกทุกครั้งที่เข้าแอปสำเร็จ (login ตรง/auto-login)
+ * ทำงานแบบเงียบๆ เสมอ ไม่ block การใช้งานแอปหลัก ถ้าเบราว์เซอร์ไม่รองรับ/ผู้ใช้กดปฏิเสธ ก็แค่ข้ามไป */
+function maintInitPush_() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || typeof firebase === 'undefined') return;
+
+  try {
+    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(MAINT_FCM_CONFIG_);
+    const messaging = firebase.messaging();
+
+    // ข้อความ push ตอนแอปเปิดอยู่ตรงหน้า (foreground) — sw.js จะจัดการเฉพาะตอนแอปอยู่เบื้องหลังเท่านั้น
+    messaging.onMessage(function (payload) {
+      const n = payload && payload.notification;
+      if (n) showToast((n.title || '') + (n.body ? ' — ' + n.body : ''));
+    });
+
+    if (Notification.permission === 'denied') return; // เคยกดปฏิเสธไว้ก่อนแล้ว ไม่รบกวนซ้ำ
+
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') return;
+      navigator.serviceWorker.ready.then(function (reg) {
+        messaging.getToken({ vapidKey: MAINT_VAPID_KEY_, serviceWorkerRegistration: reg })
+          .then(function (fcmToken) {
+            if (!fcmToken) return;
+            const prevToken = localStorage.getItem(MAINT_FCM_TOKEN_KEY_);
+            if (prevToken === fcmToken) return; // token เดิม เคยลงทะเบียนไปแล้วตอนเข้าแอปรอบก่อน ไม่ต้องยิงซ้ำ
+            localStorage.setItem(MAINT_FCM_TOKEN_KEY_, fcmToken);
+            google.script.run
+              .withSuccessHandler(function () { /* เงียบๆ ไม่ต้อง toast รบกวน ไม่ใช่ action ที่ user กดเอง */ })
+              .withFailureHandler(function (err) { console.warn('savePushToken failed', err); })
+              .savePushToken(sessionToken, fcmToken, navigator.userAgent);
+          })
+          .catch(function (err) { console.warn('FCM getToken error', err); });
+      });
+    });
+  } catch (e) { console.warn('maintInitPush_ error', e); }
+}
+
+/** ถอน token ตอน logout — กันเครื่องที่เลิกใช้แล้วยังค้างรับแจ้งเตือนของ user เดิมอยู่ */
+function maintRemovePushTokenOnLogout_() {
+  try {
+    const fcmToken = localStorage.getItem(MAINT_FCM_TOKEN_KEY_);
+    if (fcmToken && sessionToken) {
+      google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {}).removePushToken(sessionToken, fcmToken);
+    }
+    localStorage.removeItem(MAINT_FCM_TOKEN_KEY_);
+  } catch (e) { /* ignore */ }
+}
+
 /* ---------- PWA: เพิ่มลงหน้าจอหลัก ---------- */
 // สำคัญ: ต้องดักฟัง beforeinstallprompt ให้เร็วที่สุด (นอก DOMContentLoaded) เพราะบางเบราว์เซอร์
 // ยิง event นี้เร็วมาก ถ้าดักช้าไปจะพลาด event แล้วปุ่มจะกลายเป็นโหมด "คำแนะนำมือ" แทนที่จะเป็น
@@ -338,6 +402,7 @@ function handlePwaInstallClick_() {
 
     function doLogout() {
       google.script.run.logoutUser(sessionToken);
+      maintRemovePushTokenOnLogout_();
       try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* ignore */ }
       sessionToken = null;
       currentUser = null;
@@ -377,6 +442,7 @@ function handlePwaInstallClick_() {
       renderMain();
       renderOfflineBanner_();
       trySyncOfflineQueue_(false); // เข้าแอปสำเร็จ (login ตรง/auto-login) — ลองซิงค์รายการที่ค้างจากรอบก่อนทันที
+      maintInitPush_(); // Phase 4: ขอสิทธิ์แจ้งเตือน + ลงทะเบียน FCM token ของเครื่องนี้ (เงียบๆ ถ้าไม่รองรับ/ถูกปฏิเสธ)
     }
 
     let adminActiveTab = 'schedule';
