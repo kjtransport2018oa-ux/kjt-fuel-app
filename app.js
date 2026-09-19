@@ -407,6 +407,7 @@ function handlePwaInstallClick_() {
     }
 
     function doLogout() {
+      if (fuelQrPollTimer_) { clearInterval(fuelQrPollTimer_); fuelQrPollTimer_ = null; }
       google.script.run.logoutUser(sessionToken);
       maintRemovePushTokenOnLogout_();
       try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* ignore */ }
@@ -509,6 +510,8 @@ function handlePwaInstallClick_() {
     /* ---------- Driver: QR Code + ประวัติของตัวเอง ---------- */
     let driverView = 'menu'; // 'menu' | 'qr' | 'history' | 'map'
     let driverHistoryMonth = '';
+    let fuelQrPollTimer_ = null;  // เช็คสถานะงานเป็นระยะขณะเปิดหน้า QR ค้างไว้
+    let fuelQrLastState_ = null;  // 'has' | 'none' — กันจอกระพริบถ้าสถานะยังไม่เปลี่ยน
 
     function renderDriverHome() {
       if (driverView === 'qr') { renderDriverQr(); return; }
@@ -535,6 +538,7 @@ function handlePwaInstallClick_() {
     }
 
     function goDriverView(view) {
+      if (fuelQrPollTimer_) { clearInterval(fuelQrPollTimer_); fuelQrPollTimer_ = null; }
       driverView = view;
       renderDriverHome();
     }
@@ -545,26 +549,52 @@ function handlePwaInstallClick_() {
         '<button type="button" class="back-link" onclick="goDriverView(\'menu\')">← กลับ</button>' +
         '<div class="panel" style="text-align:center;">' +
           '<h3 style="margin:0 0 4px;color:var(--navy);">QR Code สำหรับเติมน้ำมัน</h3>' +
-          '<p class="panel-hint">ให้พนักงานเติมน้ำมันสแกนโค้ดนี้เพื่อยืนยันตัวตน</p>' +
-          '<div id="qrHolder" style="display:flex;justify-content:center;padding:16px 0;"><div class="empty-state">กำลังโหลด...</div></div>' +
-          '<div id="pinHolder"></div>' +
+          '<div id="qrStatusArea"><div class="empty-state">กำลังโหลด...</div></div>' +
         '</div>';
 
+      fuelQrLastState_ = null; // เข้าหน้านี้ใหม่ทุกครั้ง ให้ render รอบแรกเสมอ
+      loadDriverQrStatus_();
+      if (fuelQrPollTimer_) clearInterval(fuelQrPollTimer_);
+      fuelQrPollTimer_ = setInterval(loadDriverQrStatus_, 10000); // เช็คทุก 10 วิ ว่ามีงานใหม่เข้ามา/งานที่มีอยู่เติมเสร็จหรือยัง
+    }
+
+    /** ดึงสถานะ QR ล่าสุดจาก backend — โชว์ QR เฉพาะตอนมีงาน "รอเติม" จริง ถ้ายังไม่มีงานขึ้นข้อความรอแทน
+     * re-render เฉพาะตอนสถานะเปลี่ยนจริง (has ↔ none) กันจอกระพริบทุก 10 วิ */
+    function loadDriverQrStatus_() {
       google.script.run
         .withSuccessHandler(function (res) {
-          const holder = document.getElementById('qrHolder');
-          const pinHolder = document.getElementById('pinHolder');
-          if (!res.success) { holder.innerHTML = '<div class="empty-state">' + escapeHtml(res.message) + '</div>'; return; }
-          holder.innerHTML = '';
-          new QRCode(holder, { text: res.qrCode, width: 220, height: 220, colorDark: '#14213D', colorLight: '#ffffff' });
+          const area = document.getElementById('qrStatusArea');
+          if (!area) return; // ออกจากหน้านี้ไปแล้วระหว่างรอผลตอบกลับ
+
+          if (!res.success) {
+            area.innerHTML = '<div class="empty-state">' + escapeHtml(res.message) + '</div>';
+            fuelQrLastState_ = null;
+            return;
+          }
+
+          const newState = res.hasPendingJob ? 'has' : 'none';
+          if (newState === fuelQrLastState_) return; // สถานะเดิม ไม่ต้อง re-render
+          fuelQrLastState_ = newState;
+
+          if (!res.hasPendingJob) {
+            area.innerHTML = '<div class="empty-state" style="padding:32px 16px;">🕒 ยังไม่มีงานเติมน้ำมันเข้ามาในระบบตอนนี้<br>รอหัวหน้างานสร้างคิวให้ก่อนนะครับ</div>';
+            return;
+          }
+
+          area.innerHTML =
+            '<p class="panel-hint">ให้พนักงานเติมน้ำมันสแกนโค้ดนี้เพื่อยืนยันตัวตน</p>' +
+            '<div id="qrHolder" style="display:flex;justify-content:center;padding:16px 0;"></div>' +
+            '<div id="pinHolder"></div>';
+          new QRCode(document.getElementById('qrHolder'), { text: res.qrCode, width: 220, height: 220, colorDark: '#14213D', colorLight: '#ffffff' });
           if (res.pin) {
-            pinHolder.innerHTML =
+            document.getElementById('pinHolder').innerHTML =
               '<p class="panel-hint" style="margin-top:14px;margin-bottom:4px;">หรือถ้าสแกนไม่ได้ แจ้งรหัส 6 หลักนี้แทน</p>' +
               '<div style="font-family:\'Prompt\',sans-serif;font-size:32px;font-weight:700;letter-spacing:6px;color:var(--navy);">' + escapeHtml(res.pin) + '</div>';
           }
         })
         .withFailureHandler(function (err) {
-          document.getElementById('qrHolder').innerHTML = '<div class="empty-state">โหลดไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+          const area = document.getElementById('qrStatusArea');
+          if (area) area.innerHTML = '<div class="empty-state">โหลดไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
         })
         .getMyQrCode(sessionToken);
     }
