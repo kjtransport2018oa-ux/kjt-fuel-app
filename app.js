@@ -458,6 +458,12 @@ function handlePwaInstallClick_() {
       document.getElementById('whoRoleBadge').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
       driverView = 'menu';
       attendantView = 'menu';
+
+      // เปิดแอปมาจากการกด notification ที่แนบ deep-link มาด้วย (เช่น แจ้งเตือนอนุมัติน้ำมัน) — พาไปหน้านั้นตรงๆ
+      const deepLinkOpen = new URLSearchParams(location.search).get('open');
+      if (deepLinkOpen === 'fuelQr' && currentUser.role === 'Driver') driverView = 'qr';
+      if (deepLinkOpen) history.replaceState(null, '', location.pathname); // ล้าง query ทิ้ง กันเปิดซ้ำถ้า refresh มือถือทีหลัง
+
       renderMain();
       renderOfflineBanner_();
       trySyncOfflineQueue_(false); // เข้าแอปสำเร็จ (login ตรง/auto-login) — ลองซิงค์รายการที่ค้างจากรอบก่อนทันที
