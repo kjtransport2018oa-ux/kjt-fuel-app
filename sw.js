@@ -67,7 +67,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v17'; // v17: กดแจ้งเตือนตอนแอปเปิดอยู่แล้วให้นำทางไปหน้าเป้าหมายจริง (ไม่ใช่แค่โฟกัสแท็บเดิม) — บังคับล้าง cache เดิมทุกเครื่อง
+const CACHE_NAME = 'kjt-hub-shell-v18'; // v18: แก้ช่องทะเบียนในฟอร์มแจ้งซ่อมจาก select -> พิมพ์เอง (app.js) — bump เลขนี้ทุกครั้งที่แก้ไฟล์ใน APP_SHELL ไม่งั้นเครื่องที่ติดตั้งแอปไว้แล้วจะไม่รู้ว่ามีเวอร์ชันใหม่
 const APP_SHELL = [
   './',
   './index.html',
@@ -105,7 +105,9 @@ self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
-    fetch(event.request)
+    // { cache: 'reload' } บังคับให้เบราว์เซอร์ยิงไปเซิร์ฟเวอร์จริงเสมอ ไม่หยิบจาก HTTP cache ของตัวเบราว์เซอร์เอง
+    // (ก่อนหน้านี้ fetch() เฉยๆ ยังมีโอกาสโดน HTTP cache ของเบราว์เซอร์ตอบ response เก่ากลับมาได้ ทั้งที่โค้ดตั้งใจจะ fetch ใหม่ทุกครั้งอยู่แล้ว)
+    fetch(event.request, { cache: 'reload' })
       .then(function (res) {
         // อัปเดตแคชเงียบๆ ไปพร้อมกัน (stale-while-revalidate อย่างง่าย)
         const resClone = res.clone();
