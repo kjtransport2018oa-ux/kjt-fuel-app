@@ -67,7 +67,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v18'; // v18: แก้ช่องทะเบียนในฟอร์มแจ้งซ่อมจาก select -> พิมพ์เอง (app.js) — bump เลขนี้ทุกครั้งที่แก้ไฟล์ใน APP_SHELL ไม่งั้นเครื่องที่ติดตั้งแอปไว้แล้วจะไม่รู้ว่ามีเวอร์ชันใหม่
+const CACHE_NAME = 'kjt-hub-shell-v19'; // v19: เพิ่มฟีเจอร์บันทึก/Dashboard รถเสียกลางทาง (Unplanned Breakdown) ในเมนู Supervisor/Admin (app.js)
 const APP_SHELL = [
   './',
   './index.html',
