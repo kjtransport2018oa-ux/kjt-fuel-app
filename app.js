@@ -500,11 +500,13 @@ function handlePwaInstallClick_() {
           '<button class="tab-btn' + (adminActiveTab === 'users' ? ' active' : '') + '" onclick="switchAdminTab(\'users\')">จัดการผู้ใช้งาน</button>' +
           '<button class="tab-btn' + (adminActiveTab === 'healthImport' ? ' active' : '') + '" onclick="switchAdminTab(\'healthImport\')">นำเข้าผลตรวจสุขภาพ</button>' +
           '<button class="tab-btn' + (adminActiveTab === 'maintenance' ? ' active' : '') + '" onclick="switchAdminTab(\'maintenance\')">คิวซ่อมบำรุง</button>' +
+          '<button class="tab-btn' + (adminActiveTab === 'breakdown' ? ' active' : '') + '" onclick="switchAdminTab(\'breakdown\')">รถเสียกลางทาง</button>' +
         '</div>' +
         '<div id="adminTabContent"></div>';
       if (adminActiveTab === 'users') renderAdminUsers('adminTabContent');
       else if (adminActiveTab === 'healthImport') renderHealthImportPage_('adminTabContent', '');
       else if (adminActiveTab === 'maintenance') renderMaintenanceCalendarPage_('adminTabContent', '');
+      else if (adminActiveTab === 'breakdown') renderBreakdownPage_('adminTabContent', '');
       else renderSupervisorSchedule('adminTabContent');
     }
 
@@ -2413,6 +2415,268 @@ function handlePwaInstallClick_() {
         .updateMaintenanceStatus(sessionToken, id, currentStatus || 'Pending', note, mins ? Number(mins) : null);
     }
 
+    /* ---------- Supervisor/Admin: บันทึก + Dashboard รถเสียกลางทาง (Unplanned Breakdown) — ปิดข้อ 3.5 ของแบบฟอร์มออดิท ---------- */
+    let breakdownActiveTab_ = 'form';
+    let breakdownTargetId_ = 'mainContent';
+    let breakdownBackOnclick_ = '';
+    let breakdownFormData_ = null;
+    let lastBreakdownParams_ = null;
+
+    function renderBreakdownPage_(targetId, backOnclick, tab) {
+      breakdownTargetId_ = targetId;
+      breakdownBackOnclick_ = backOnclick || '';
+      breakdownActiveTab_ = tab || breakdownActiveTab_ || 'form';
+      const el = document.getElementById(targetId);
+
+      el.innerHTML =
+        (breakdownBackOnclick_ ? '<button type="button" class="back-link" onclick="' + breakdownBackOnclick_ + '">← กลับเมนูหลัก</button>' : '') +
+        '<div class="tab-bar">' +
+          '<button type="button" class="tab-btn' + (breakdownActiveTab_ === 'form' ? ' active' : '') + '" onclick="switchBreakdownTab_(\'form\')">บันทึกรถเสีย</button>' +
+          '<button type="button" class="tab-btn' + (breakdownActiveTab_ === 'dashboard' ? ' active' : '') + '" onclick="switchBreakdownTab_(\'dashboard\')">Dashboard สรุป</button>' +
+        '</div>' +
+        '<div id="breakdownBody"></div>';
+
+      if (breakdownActiveTab_ === 'dashboard') renderBreakdownDashboardBody_();
+      else renderBreakdownFormBody_();
+    }
+
+    function switchBreakdownTab_(tab) {
+      renderBreakdownPage_(breakdownTargetId_, breakdownBackOnclick_, tab);
+    }
+
+    /* ---------- แท็บ 1: ฟอร์มบันทึกเหตุการณ์รถเสีย ---------- */
+    function renderBreakdownFormBody_() {
+      const body = document.getElementById('breakdownBody');
+      body.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดข้อมูลฟอร์ม...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res.success) { body.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดข้อมูลฟอร์มไม่สำเร็จ') + '</div>'; return; }
+          breakdownFormData_ = res;
+          body.innerHTML = breakdownFormHtml_(res);
+        })
+        .withFailureHandler(function (err) {
+          body.innerHTML = '<div class="empty-state">โหลดข้อมูลฟอร์มไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getBreakdownFormData(sessionToken);
+    }
+
+    function breakdownFormHtml_(data) {
+      const plateOptions = data.plates.map(function (p) { return '<option value="' + escapeHtml(p) + '"></option>'; }).join('');
+      const driverOptions = data.drivers.map(function (d) { return '<option value="' + escapeHtml(d) + '"></option>'; }).join('');
+      const causeOptions = data.causes.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
+      const todayISO = new Date().toISOString().slice(0, 10);
+
+      return '<div class="panel">' +
+        '<div class="panel-title"><h3>บันทึกเหตุการณ์รถเสียกลางทาง</h3></div>' +
+        '<p class="panel-hint">หัวหน้างานกรอกสรุปเหตุการณ์หลังทราบเรื่อง เพื่อใช้เป็นหลักฐานติดตาม % รถเสีย (ข้อ 3.5 ของแบบฟอร์มออดิท)</p>' +
+
+        '<div class="field"><label>วันที่เกิดเหตุ</label><input type="date" id="bdDate" value="' + todayISO + '"></div>' +
+
+        '<div class="field"><label>ทะเบียนรถ</label>' +
+          '<input type="text" id="bdPlate" list="bdPlateList" placeholder="เช่น 71-1645" autocomplete="off">' +
+          '<datalist id="bdPlateList">' + plateOptions + '</datalist>' +
+        '</div>' +
+
+        '<div class="field"><label>คนขับ</label>' +
+          '<input type="text" id="bdDriver" list="bdDriverList" placeholder="ชื่อ-นามสกุลคนขับ" autocomplete="off">' +
+          '<datalist id="bdDriverList">' + driverOptions + '</datalist>' +
+        '</div>' +
+
+        '<div class="field"><label>สถานที่/เส้นทางที่เกิดเหตุ</label>' +
+          '<input type="text" id="bdLocation" placeholder="เช่น ถนนสุขุมวิท ก่อนถึงบางแสน"></div>' +
+
+        '<div class="field"><label>สาเหตุ</label>' +
+          '<select id="bdCause"><option value="">— เลือกสาเหตุ —</option>' + causeOptions + '</select>' +
+        '</div>' +
+
+        '<div class="field"><label>เวลาที่รถจอดเสีย โดยประมาณ (นาที)</label>' +
+          '<input type="number" id="bdDowntime" min="0" placeholder="เช่น 90"></div>' +
+
+        '<div class="field"><label>การแก้ไข/การช่วยเหลือที่ดำเนินการ</label>' +
+          '<textarea id="bdAction" rows="3" class="maint-textarea" placeholder="เช่น ส่งช่างออกไปซ่อมหน้างาน / ลากรถเข้าอู่ / เปลี่ยนรถสำรองให้ไปส่งต่อ"></textarea>' +
+        '</div>' +
+
+        '<div id="bdMsg" class="hi-status"></div>' +
+        '<button type="button" class="btn btn-primary" id="bdSubmitBtn" onclick="submitBreakdownRecord_()">บันทึกเหตุการณ์</button>' +
+      '</div>';
+    }
+
+    function breakdownMsg_(text, kind) {
+      const el = document.getElementById('bdMsg');
+      if (!el) return;
+      el.className = 'hi-status' + (kind ? ' hi-' + kind : '');
+      el.innerHTML = text ? escapeHtml(text) : '';
+    }
+
+    function submitBreakdownRecord_() {
+      const dateISO = document.getElementById('bdDate').value;
+      const plateNumber = document.getElementById('bdPlate').value.trim();
+      const driverName = document.getElementById('bdDriver').value.trim();
+      const location = document.getElementById('bdLocation').value.trim();
+      const cause = document.getElementById('bdCause').value;
+      const downtimeMinutes = document.getElementById('bdDowntime').value;
+      const actionTaken = document.getElementById('bdAction').value.trim();
+
+      if (!dateISO) { breakdownMsg_('กรุณาระบุวันที่เกิดเหตุ', 'err'); return; }
+      if (!plateNumber) { breakdownMsg_('กรุณาพิมพ์ทะเบียนรถ', 'err'); return; }
+      if (!cause) { breakdownMsg_('กรุณาเลือกสาเหตุ', 'err'); return; }
+
+      const btn = document.getElementById('bdSubmitBtn');
+      btn.disabled = true;
+      breakdownMsg_('กำลังบันทึก...');
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          if (!res || !res.success) { breakdownMsg_((res && res.message) || 'บันทึกไม่สำเร็จ', 'err'); return; }
+          breakdownMsg_(res.message, 'ok');
+          showToast('บันทึกเหตุการณ์รถเสียเรียบร้อย');
+          if (breakdownFormData_) document.getElementById('breakdownBody').innerHTML = breakdownFormHtml_(breakdownFormData_);
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          breakdownMsg_('บันทึกไม่สำเร็จ: ' + err.message, 'err');
+        })
+        .submitBreakdownLog(sessionToken, {
+          dateISO: dateISO, plateNumber: plateNumber, driverName: driverName,
+          location: location, cause: cause,
+          downtimeMinutes: downtimeMinutes ? Number(downtimeMinutes) : 0,
+          actionTaken: actionTaken
+        });
+    }
+
+    /* ---------- แท็บ 2: Dashboard สรุป % รถเสีย ---------- */
+    function renderBreakdownDashboardBody_() {
+      const el = document.getElementById('breakdownBody');
+      const now = new Date();
+      const curYear = now.getFullYear();
+
+      let monthOptions = '';
+      for (let m = 1; m <= 12; m++) {
+        monthOptions += '<option value="' + m + '"' + (m === now.getMonth() + 1 ? ' selected' : '') + '>' + THAI_MONTHS_UI_[m] + '</option>';
+      }
+      let yearOptions = '';
+      for (let y = curYear; y >= curYear - 2; y--) {
+        yearOptions += '<option value="' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+
+      el.innerHTML =
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>Dashboard สรุปรถเสียกลางทาง</h3></div>' +
+          '<p class="panel-hint">% รถเสีย คำนวณจากจำนวนรถ (ไม่นับซ้ำคัน) ที่เสียในเดือนนั้น เทียบกับจำนวนรถขนส่งสินค้าทั้งหมดในกองรถ</p>' +
+          '<div class="filter-row">' +
+            '<select id="bdRepMonth">' + monthOptions + '</select>' +
+            '<select id="bdRepYear">' + yearOptions + '</select>' +
+          '</div>' +
+          '<div class="filter-row" style="margin-bottom:0;">' +
+            '<button class="btn btn-primary" id="bdRepSearchBtn" onclick="loadBreakdownDashboard_()" style="width:auto;">ค้นหา</button>' +
+            '<button class="btn btn-outline" id="bdRepExportBtn" onclick="exportBreakdownReport_()" style="width:auto;display:none;">📥 Export เป็น Excel</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="bdDashboardResult"></div>';
+
+      loadBreakdownDashboard_();
+    }
+
+    function loadBreakdownDashboard_() {
+      const month = document.getElementById('bdRepMonth').value;
+      const year = document.getElementById('bdRepYear').value;
+      const resultEl = document.getElementById('bdDashboardResult');
+      const exportBtn = document.getElementById('bdRepExportBtn');
+      const searchBtn = document.getElementById('bdRepSearchBtn');
+
+      exportBtn.style.display = 'none';
+      searchBtn.disabled = true;
+      resultEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังประมวลผล...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          searchBtn.disabled = false;
+          if (!res.success) {
+            resultEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลด Dashboard ไม่สำเร็จ') + '</div>';
+            return;
+          }
+          lastBreakdownParams_ = { month: month, year: year };
+          renderBreakdownDashboardResult_(res);
+          exportBtn.style.display = 'inline-block';
+        })
+        .withFailureHandler(function (err) {
+          searchBtn.disabled = false;
+          resultEl.innerHTML = '<div class="empty-state">โหลด Dashboard ไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getBreakdownDashboard(sessionToken, year, month);
+    }
+
+    function renderBreakdownDashboardResult_(res) {
+      const resultEl = document.getElementById('bdDashboardResult');
+      let html = '';
+
+      html += '<div class="summary-cards" style="grid-template-columns:repeat(5,1fr);">' +
+        summaryCardHtml_(res.totalTrucks, 'รถทั้งหมด (คัน)') +
+        summaryCardHtml_(res.distinctBrokenCount, 'รถที่เสีย (คัน)') +
+        summaryCardHtml_(res.breakdownRatePct, '% รถเสีย') +
+        summaryCardHtml_(res.totalIncidents, 'จำนวนครั้งที่เสีย') +
+        summaryCardHtml_(res.avgDowntimeMinutes, 'เวลาเฉลี่ยที่เสีย (นาที)') +
+      '</div>';
+
+      html += '<div class="panel"><div class="panel-title"><h3>สรุปตามสาเหตุ — ' + escapeHtml(res.monthLabel) + '</h3></div>' +
+        (res.byCause.length ?
+          res.byCause.map(function (c) {
+            return '<div class="bulk-result-row ok"><span>' + escapeHtml(c.cause) + '</span><span>' + c.count + ' ครั้ง</span></div>';
+          }).join('')
+          : '<div class="empty-state">ไม่มีเหตุการณ์รถเสียในเดือนนี้</div>') +
+      '</div>';
+
+      if (res.topPlates.length) {
+        html += '<div class="panel"><div class="panel-title"><h3>รถที่เสียบ่อยที่สุด (Top 5) — ควรเฝ้าระวังเป็นพิเศษ</h3></div>' +
+          res.topPlates.map(function (p) {
+            return '<div class="bulk-result-row fail"><span>' + escapeHtml(p.plate) + '</span><span>' + p.count + ' ครั้ง</span></div>';
+          }).join('') +
+        '</div>';
+      }
+
+      html += '<div class="panel"><div class="panel-title"><h3>รายการเหตุการณ์ทั้งหมด</h3></div>' +
+        (res.rows.length ?
+          '<div class="grid-scroll"><table class="report-table"><thead><tr><th>วันที่</th><th>ทะเบียน</th><th>คนขับ</th><th>สถานที่</th><th>สาเหตุ</th><th>เสีย (นาที)</th><th>ผู้บันทึก</th></tr></thead><tbody>' +
+          res.rows.map(function (r) {
+            return '<tr>' +
+              '<td>' + escapeHtml(r.dateText) + '</td>' +
+              '<td>' + escapeHtml(r.plateNumber) + '</td>' +
+              '<td>' + escapeHtml(r.driverName) + '</td>' +
+              '<td>' + escapeHtml(r.location) + '</td>' +
+              '<td>' + escapeHtml(r.cause) + '</td>' +
+              '<td>' + (r.downtimeMinutes || '-') + '</td>' +
+              '<td>' + escapeHtml(r.reportedByName) + '</td>' +
+            '</tr>';
+          }).join('') + '</tbody></table></div>'
+          : '<div class="empty-state">ไม่พบรายการรถเสียในเดือนนี้</div>') +
+      '</div>';
+
+      resultEl.innerHTML = html;
+    }
+
+    function exportBreakdownReport_() {
+      if (!lastBreakdownParams_) return;
+      const btn = document.getElementById('bdRepExportBtn');
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="border-color:rgba(16,27,51,.35);border-top-color:var(--navy);"></span>กำลังสร้างไฟล์...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.innerHTML = original;
+          if (!res.success) { showToast(res.message || 'Export ไม่สำเร็จ', true); return; }
+          downloadBase64File_(res.base64, res.fileName);
+          showToast('ดาวน์โหลดไฟล์สำเร็จ');
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.innerHTML = original;
+          showToast('Export ไม่สำเร็จ: ' + err.message, true);
+        })
+        .exportBreakdownReportExcel(sessionToken, lastBreakdownParams_.year, lastBreakdownParams_.month);
+    }
+
     function healthIsMale_(record) {
       const g = String(record && record.gender || '').trim();
       return g.indexOf('ช') === 0 || g.toLowerCase().indexOf('m') === 0;
@@ -3485,6 +3749,10 @@ function handlePwaInstallClick_() {
         renderMaintenanceBookingPage_("goSupervisorView('menu')");
         return;
       }
+      if (supervisorView === 'breakdown') {
+        renderBreakdownPage_('mainContent', "goSupervisorView('menu')");
+        return;
+      }
       if (supervisorView === 'healthImport') {
         // หน้านำเข้าใช้ #mainContent ตรงๆ เหมือนหน้าสุขภาพอื่น เพื่อให้พื้นที่ตาราง preview กว้างพอ
         renderHealthImportPage_('mainContent', "goSupervisorView('menu')");
@@ -3514,6 +3782,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'maintBook\')">' +
             '<span class="dmb-icon">📝</span><span class="dmb-label">เปิดใบจองซ่อมแทนคนขับ</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'breakdown\')">' +
+            '<span class="dmb-icon">🚨</span><span class="dmb-label">บันทึก/สรุปรถเสียกลางทาง</span>' +
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="goSupervisorView(\'healthImport\')">' +
             '<span class="dmb-icon">📥</span><span class="dmb-label">นำเข้าผลตรวจสุขภาพประจำปี (จากไฟล์บริษัทตรวจ)</span>' +
