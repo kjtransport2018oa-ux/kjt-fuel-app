@@ -1972,8 +1972,9 @@ function handlePwaInstallClick_() {
     }
 
     function maintBookingFormHtml_(data) {
+      // เฟส: เปลี่ยนจาก select ให้คนขับกดเลือกทะเบียน -> พิมพ์เองได้เลย (ยังมี datalist ช่วย autocomplete จากทะเบียนที่เคยมีในระบบ กดเลือกจากรายการหรือพิมพ์เองก็ได้ ไม่บังคับเลือก)
       const plateOptions = data.plates.map(function (p) {
-        return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
+        return '<option value="' + escapeHtml(p) + '"></option>';
       }).join('');
       // เฟส 2: ต่อท้ายชื่อหมวดด้วยไอคอนสี ให้คนขับเห็นระดับความสำคัญตอนเลือกเลย ไม่ต้องกดเลือกเอง
       const catOptions = data.categories.map(function (c) {
@@ -1987,11 +1988,8 @@ function handlePwaInstallClick_() {
         '<p class="panel-hint">เลือกหมวดหมู่อาการเสีย ระบบจะกำหนดระดับความสำคัญและเวลาซ่อมให้อัตโนมัติ แล้วแสดงเฉพาะวันที่คิวยังว่างให้เลือก</p>' +
 
         '<div class="field"><label>ทะเบียนรถ</label>' +
-          '<select id="maintPlate" onchange="maintTogglePlateInput_()">' +
-            '<option value="">— เลือกทะเบียนรถ —</option>' + plateOptions +
-            '<option value="__other__">อื่นๆ (พิมพ์เอง)</option>' +
-          '</select>' +
-          '<input type="text" id="maintPlateOther" placeholder="เช่น 71-1645" style="display:none;margin-top:8px;">' +
+          '<input type="text" id="maintPlate" list="maintPlateList" placeholder="เช่น 71-1645" autocomplete="off">' +
+          '<datalist id="maintPlateList">' + plateOptions + '</datalist>' +
         '</div>' +
 
         '<div class="field"><label>หมวดหมู่อาการเสีย</label>' +
@@ -2016,12 +2014,6 @@ function handlePwaInstallClick_() {
         '<div id="maintBookingMsg" class="hi-status"></div>' +
         '<button type="button" class="btn btn-primary" id="maintSubmitBtn" onclick="maintSubmitBooking_()">ยืนยันจองคิวซ่อม</button>' +
       '</div>';
-    }
-
-    function maintTogglePlateInput_() {
-      const sel = document.getElementById('maintPlate');
-      const other = document.getElementById('maintPlateOther');
-      other.style.display = sel.value === '__other__' ? 'block' : 'none';
     }
 
     /** เฟส 2: แทนที่ maintSelectSeverity_ เดิม — สีความสำคัญมาจากหมวดหมู่ที่เลือกเสมอ คนขับไม่ต้องกดเลือกเอง */
@@ -2161,12 +2153,11 @@ function handlePwaInstallClick_() {
     }
 
     function maintSubmitBooking_() {
-      const plateSel = document.getElementById('maintPlate').value;
-      const plate = plateSel === '__other__' ? document.getElementById('maintPlateOther').value.trim() : plateSel;
+      const plate = document.getElementById('maintPlate').value.trim();
       const category = document.getElementById('maintCategory').value;
       const symptom = document.getElementById('maintSymptom').value.trim();
 
-      if (!plate) { maintMsg_('กรุณาเลือกหรือพิมพ์ทะเบียนรถ', 'err'); return; }
+      if (!plate) { maintMsg_('กรุณาพิมพ์ทะเบียนรถ', 'err'); return; }
       if (!category) { maintMsg_('กรุณาเลือกหมวดหมู่อาการเสีย', 'err'); return; }
       if (!symptom) { maintMsg_('กรุณาพิมพ์รายละเอียดอาการที่พบ', 'err'); return; }
       if (!maintSelectedDate_) { maintMsg_('กรุณาเลือกวันที่ต้องการเข้าซ่อม', 'err'); return; }
