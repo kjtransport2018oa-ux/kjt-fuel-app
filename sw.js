@@ -46,20 +46,28 @@ messaging.onBackgroundMessage(function (payload) {
   });
 });
 
-// แตะที่ notification แล้วเด้งเปิด/โฟกัสแอปที่เปิดอยู่ (ถ้ายังไม่มีแท็บเปิดอยู่ ค่อยเปิดใหม่)
+// แตะที่ notification แล้วเด้งเปิด/นำทางแอปที่เปิดอยู่ไปหน้าเป้าหมายจริง (ถ้ายังไม่มีแท็บเปิดอยู่ ค่อยเปิดใหม่)
 // ใช้ './' เสมอ (สัมพัทธ์กับ scope ของ service worker เอง) ไม่ hardcode โดเมน กันพลาดเปิดผิด path
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   const targetUrl = (event.notification.data && event.notification.data.url) || './';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
-      for (const c of clientList) { if ('focus' in c) return c.focus(); }
+      for (const c of clientList) {
+        if ('focus' in c) {
+          // มีแท็บเปิดอยู่แล้ว — นำทางไปหน้าเป้าหมายจริงๆ ด้วย (ไม่ใช่แค่โฟกัสแท็บเดิมเฉยๆ) เผื่อ deep-link ไปหน้าอื่น
+          if ('navigate' in c) {
+            return c.navigate(targetUrl).then(function (nc) { return nc.focus(); }).catch(function () { return c.focus(); });
+          }
+          return c.focus();
+        }
+      }
       if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v16'; // v16: แก้ path ไอคอนแจ้งเตือนที่ทำให้ 404 + เตรียมรับ payload.data สำหรับแก้บั๊กแจ้งเตือนซ้อน 2 อัน — บังคับล้าง cache เดิมทุกเครื่อง
+const CACHE_NAME = 'kjt-hub-shell-v17'; // v17: กดแจ้งเตือนตอนแอปเปิดอยู่แล้วให้นำทางไปหน้าเป้าหมายจริง (ไม่ใช่แค่โฟกัสแท็บเดิม) — บังคับล้าง cache เดิมทุกเครื่อง
 const APP_SHELL = [
   './',
   './index.html',
