@@ -67,7 +67,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v19'; // v19: เพิ่มฟีเจอร์บันทึก/Dashboard รถเสียกลางทาง (Unplanned Breakdown) ในเมนู Supervisor/Admin (app.js)
+const CACHE_NAME = 'kjt-hub-shell-v20'; // v20: เพิ่มกราฟ Dashboard รถเสียกลางทาง (โดนัทสัดส่วนสาเหตุ + แท่งแนวโน้มรายปี) — app.js + style.css
 const APP_SHELL = [
   './',
   './index.html',
