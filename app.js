@@ -4307,7 +4307,7 @@ function handlePwaInstallClick_() {
 
       el.innerHTML =
         '<div class="panel">' +
-          '<div class="panel-title"><h3>รายงานคาร์บอนจากน้ำมัน (อ้างอิง/สำหรับทำ Audit)</h3></div>' +
+          '<div class="panel-title"><h3>รายงานคาร์บอนจากน้ำมัน</h3></div>' +
           '<p class="panel-hint">เทียบ "น้ำมันที่หัวหน้างานจัดสรรให้" กับ "น้ำมันที่เติมจริง" ต่อทะเบียนรถต่อเดือน — เติมน้อยกว่าที่จัดสรร ถือว่าช่วยลดการปล่อยก๊าซเรือนกระจกได้เท่าส่วนต่างนั้น</p>' +
           '<div class="filter-row">' +
             '<select id="carMonth">' + monthOptions + '</select>' +
