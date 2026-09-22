@@ -147,6 +147,7 @@
     .btn-amber { background: var(--amber); color: var(--navy); box-shadow: 0 4px 14px -4px rgba(252,163,17,.55); }
     .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text); }
     .btn-danger { background: var(--danger); color: #fff; }
+    .btn-success { background: var(--success); color: #fff; box-shadow: 0 4px 14px -4px rgba(30,138,101,.55); }
     .btn-sm { padding: 8px 12px; font-size: 13px; width: auto; }
     .btn[disabled] { opacity: .45; pointer-events: none; box-shadow: none; }
 
@@ -900,6 +901,19 @@
     .bd-donut-legend-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
     .bd-charts-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
     @media (min-width: 720px) { .bd-charts-grid { grid-template-columns: 1fr 1fr; } }
+
+    /* ---------- หน้าข้อตกลง/กฎระเบียบก่อนรับ QR Code เติมน้ำมัน (Terms & Regulations Screen) ---------- */
+    .term-order-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 4px; }
+    .term-order-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .term-order-row:last-child { border-bottom: none; }
+    .term-order-row .lbl { color: var(--text-soft); }
+    .term-order-row .val { font-weight: 700; color: var(--navy); text-align: right; }
+    .term-section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 10px; }
+    .term-section-title h4 { margin: 0; font-size: 15px; color: var(--navy); }
+    .term-rule-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+    .term-rule-list li { display: flex; gap: 8px; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+    .term-rule-list li::before { content: '✓'; color: var(--success); font-weight: 700; flex-shrink: 0; }
+    .term-accept-btn { width: 100%; padding: 16px; font-size: 16px; margin-top: 22px; }
 
     .hr-trend-table td:first-child { white-space: nowrap; font-weight: 600; }
     .hr-cell {
