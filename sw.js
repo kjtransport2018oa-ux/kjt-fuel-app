@@ -67,7 +67,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v20'; // v20: เพิ่มกราฟ Dashboard รถเสียกลางทาง (โดนัทสัดส่วนสาเหตุ + แท่งแนวโน้มรายปี) — app.js + style.css
+const CACHE_NAME = 'kjt-hub-shell-v21'; // v21: เพิ่มหน้าข้อตกลง/กฎระเบียบ (Terms & Regulations Screen) ก่อนรับ QR Code เติมน้ำมัน — app.js + style.css
 const APP_SHELL = [
   './',
   './index.html',
