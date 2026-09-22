@@ -3952,6 +3952,7 @@ function handlePwaInstallClick_() {
     /* ---------- Supervisor: รายงานข้อมูลการเติมน้ำมัน (Report & Dashboard) ---------- */
     const THAI_MONTHS_UI_ = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
     let lastReportParams_ = null;
+    let lastCarbonReportParams_ = null;
 
     let reportActiveTab_ = 'monthly';
 
@@ -3964,10 +3965,12 @@ function handlePwaInstallClick_() {
         '<div class="tab-bar">' +
           '<button type="button" class="tab-btn' + (reportActiveTab_ === 'monthly' ? ' active' : '') + '" onclick="renderSupervisorReportPage_(\'monthly\')">สรุปรายเดือน</button>' +
           '<button type="button" class="tab-btn' + (reportActiveTab_ === 'variance' ? ' active' : '') + '" onclick="renderSupervisorReportPage_(\'variance\')">ตรวจสอบความผิดปกติ</button>' +
+          '<button type="button" class="tab-btn' + (reportActiveTab_ === 'carbon' ? ' active' : '') + '" onclick="renderSupervisorReportPage_(\'carbon\')">คาร์บอนจากน้ำมัน (CO2)</button>' +
         '</div>' +
         '<div id="reportBody"></div>';
 
       if (reportActiveTab_ === 'variance') renderVarianceReportBody_();
+      else if (reportActiveTab_ === 'carbon') renderCarbonReportBody_();
       else renderMonthlyReportBody_();
     }
 
@@ -4285,6 +4288,190 @@ function handlePwaInstallClick_() {
         '</tbody></table></div></div>';
 
       resultEl.innerHTML = html;
+    }
+
+    /* ---------- แท็บ 3: คาร์บอนจากน้ำมัน (CO2) — เทียบ "จัดสรร" กับ "เติมจริง" ต่อทะเบียน ใช้อ้างอิง/ทำ Audit ---------- */
+    function renderCarbonReportBody_() {
+      const el = document.getElementById('reportBody');
+      const now = new Date();
+      const curYear = now.getFullYear();
+
+      let monthOptions = '';
+      for (let m = 1; m <= 12; m++) {
+        monthOptions += '<option value="' + m + '"' + (m === now.getMonth() + 1 ? ' selected' : '') + '>' + THAI_MONTHS_UI_[m] + '</option>';
+      }
+      let yearOptions = '';
+      for (let y = curYear; y >= curYear - 2; y--) {
+        yearOptions += '<option value="' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+
+      el.innerHTML =
+        '<div class="panel">' +
+          '<div class="panel-title"><h3>รายงานคาร์บอนจากน้ำมัน (อ้างอิง/สำหรับทำ Audit)</h3></div>' +
+          '<p class="panel-hint">เทียบ "น้ำมันที่หัวหน้างานจัดสรรให้" กับ "น้ำมันที่เติมจริง" ต่อทะเบียนรถต่อเดือน — เติมน้อยกว่าที่จัดสรร ถือว่าช่วยลดการปล่อยก๊าซเรือนกระจกได้เท่าส่วนต่างนั้น</p>' +
+          '<div class="filter-row">' +
+            '<select id="carMonth">' + monthOptions + '</select>' +
+            '<select id="carYear">' + yearOptions + '</select>' +
+            '<select id="carFleet"><option value="ALL">ทุก Fleet</option></select>' +
+            '<select id="carDriver"><option value="ALL">ทุกคนขับ</option></select>' +
+          '</div>' +
+          '<div class="filter-row" style="margin-bottom:0;">' +
+            '<button class="btn btn-primary" id="carSearchBtn" onclick="loadCarbonReport_()" style="width:auto;">ค้นหา</button>' +
+            '<button class="btn btn-outline" id="carExportBtn" onclick="exportCarbonReport_()" style="width:auto;display:none;">📥 Export เป็น Excel</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="carbonResultArea"></div>';
+
+      loadFleetOptionsForCarbon_();
+      loadDriverOptionsForCarbon_();
+      loadCarbonReport_(); // ไม่เลือก filter = โชว์ทั้งหมดของเดือนนี้ทันที ไม่ต้องรอกดค้นหา
+    }
+
+    function loadFleetOptionsForCarbon_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const sel = document.getElementById('carFleet');
+          if (!sel || !res.success) return;
+          res.fleets.forEach(function (fleet) {
+            const opt = document.createElement('option');
+            opt.value = fleet; opt.textContent = fleet;
+            sel.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list Fleet ไม่ขึ้น ยังใช้ "ทุก Fleet" ได้ปกติ */ })
+        .getFleetOptions(sessionToken);
+    }
+
+    function loadDriverOptionsForCarbon_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const sel = document.getElementById('carDriver');
+          if (!sel || !res.success) return;
+          res.drivers.forEach(function (name) {
+            const opt = document.createElement('option');
+            opt.value = name; opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        })
+        .withFailureHandler(function () { /* ไม่ critical — แค่ list คนขับไม่ขึ้น ยังใช้ "ทุกคนขับ" ได้ปกติ */ })
+        .getDriverNameOptions(sessionToken);
+    }
+
+    function loadCarbonReport_() {
+      const monthEl = document.getElementById('carMonth');
+      const yearEl = document.getElementById('carYear');
+      const fleetEl = document.getElementById('carFleet');
+      const driverEl = document.getElementById('carDriver');
+      if (!monthEl || !yearEl || !fleetEl || !driverEl) return; // เผื่อ tab ถูกสลับไปแล้วก่อน callback กลับมาถึง
+
+      const month = monthEl.value, year = yearEl.value, fleet = fleetEl.value, driver = driverEl.value;
+      const resultEl = document.getElementById('carbonResultArea');
+      const searchBtn = document.getElementById('carSearchBtn');
+      const exportBtn = document.getElementById('carExportBtn');
+
+      exportBtn.style.display = 'none';
+      searchBtn.disabled = true;
+      resultEl.innerHTML = '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังคำนวณคาร์บอน...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          searchBtn.disabled = false;
+          if (!res.success) {
+            resultEl.innerHTML = '<div class="empty-state">' + escapeHtml(res.message || 'โหลดรายงานไม่สำเร็จ') + '</div>';
+            return;
+          }
+          lastCarbonReportParams_ = { month: month, year: year, fleet: fleet, driver: driver };
+          renderCarbonReportResult_(res);
+          exportBtn.style.display = 'inline-block';
+        })
+        .withFailureHandler(function (err) {
+          searchBtn.disabled = false;
+          resultEl.innerHTML = '<div class="empty-state">โหลดรายงานไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
+        })
+        .getCarbonEmissionReport(sessionToken, year, month, fleet, driver);
+    }
+
+    function renderCarbonReportResult_(res) {
+      const resultEl = document.getElementById('carbonResultArea');
+      const t = res.totals;
+      let html = '';
+
+      html += '<div class="summary-cards" style="grid-template-columns:repeat(4,1fr);">' +
+        summaryCardHtml_(t.litersActual, 'น้ำมันเติมจริงรวม (ลิตร)') +
+        summaryCardHtml_(t.co2ActualKg, 'CO2 จากที่เติมจริง (kg)') +
+        summaryCardHtml_(t.savedLiters, 'ลิตรที่ลดได้ (จัดสรร − เติมจริง)') +
+        summaryCardHtml_(t.co2AvoidedKg, 'CO2 ที่ลดได้ (kg)') +
+      '</div>';
+
+      html += '<div class="panel">' +
+        '<div class="panel-title"><h3>เกณฑ์อ้างอิงที่ใช้คำนวณ</h3></div>' +
+        '<div class="topic-text">' +
+          'รถของบริษัททั้งหมด: ' + escapeHtml(res.vehicleModelLabel) + '<br>' +
+          'ค่าสัมประสิทธิ์การปล่อยก๊าซเรือนกระจก (Emission Factor): ' + res.emissionFactor + ' kgCO2e ต่อลิตรน้ำมันดีเซล<br>' +
+          'ที่มา: ' + escapeHtml(res.emissionFactorSource) + '<br>' +
+          'วิธีคำนวณ: เปรียบเทียบ "น้ำมันที่หัวหน้างานจัดสรรให้" กับ "น้ำมันที่เติมจริง" ต่อทะเบียนรถ รวมทั้งเดือน — ' +
+          'ถ้าเติมจริงน้อยกว่าที่จัดสรร ส่วนต่างถือเป็นลิตรที่ลดการใช้ได้ (นำไปคูณค่าสัมประสิทธิ์ = CO2 ที่ลดได้) ' +
+          'ถ้าเติมจริงมากกว่าที่จัดสรร ส่วนต่างถือเป็นลิตรที่เกินแผน (แยกแสดงไว้ต่างหาก ไม่หักลบกับส่วนที่ลดได้)' +
+        '</div>' +
+      '</div>';
+
+      html += '<div class="summary-cards" style="grid-template-columns:repeat(3,1fr);">' +
+        summaryCardHtml_(t.vehicleCount, 'จำนวนรถที่มีการเติมในเดือนนี้') +
+        summaryCardHtml_(t.excessLiters, 'ลิตรที่เกินแผนรวม') +
+        summaryCardHtml_(t.co2ExcessKg, 'CO2 ที่เกินแผนรวม (kg)') +
+      '</div>';
+
+      html += '<div class="panel"><div class="panel-title"><h3>รายละเอียดตามทะเบียนรถ (' + escapeHtml(res.monthLabel) + ')</h3></div>' +
+        (res.rows.length ?
+          '<div class="grid-scroll"><table class="report-table"><thead><tr>' +
+          '<th>ทะเบียนรถ</th><th>Fleet</th><th>คนขับ</th><th>จำนวนครั้งที่เติม</th><th>จัดสรร (ลิตร)</th><th>เติมจริง (ลิตร)</th>' +
+          '<th>CO2 จากที่เติมจริง (kg)</th><th>ลิตรที่ลดได้</th><th>CO2 ที่ลดได้ (kg)</th><th>ลิตรที่เกินแผน</th><th>CO2 ที่เกินแผน (kg)</th><th>สถานะ</th>' +
+          '</tr></thead><tbody>' +
+          res.rows.map(function (r) {
+            const hasExcess = r.excessLiters > 0;
+            const pill = hasExcess
+              ? '<span class="status-pill missed">เกินแผน</span>'
+              : (r.savedLiters > 0 ? '<span class="status-pill filled">ลดคาร์บอนได้</span>' : '<span class="status-pill pending">ตรงแผน</span>');
+            return '<tr>' +
+              '<td>' + escapeHtml(r.plateNumber) + '</td>' +
+              '<td>' + escapeHtml(r.fleet) + '</td>' +
+              '<td>' + escapeHtml(r.driverName) + '</td>' +
+              '<td>' + r.fillCount + '</td>' +
+              '<td>' + Number(r.litersPlanned).toLocaleString('th-TH') + '</td>' +
+              '<td>' + Number(r.litersActual).toLocaleString('th-TH') + '</td>' +
+              '<td>' + Number(r.co2ActualKg).toLocaleString('th-TH') + '</td>' +
+              '<td>' + Number(r.savedLiters).toLocaleString('th-TH') + '</td>' +
+              '<td style="font-weight:700;">' + Number(r.co2AvoidedKg).toLocaleString('th-TH') + '</td>' +
+              '<td>' + Number(r.excessLiters).toLocaleString('th-TH') + '</td>' +
+              '<td>' + Number(r.co2ExcessKg).toLocaleString('th-TH') + '</td>' +
+              '<td>' + pill + '</td>' +
+            '</tr>';
+          }).join('') + '</tbody></table></div>'
+          : '<div class="empty-state">ไม่พบข้อมูลการเติมน้ำมันในเดือน ' + escapeHtml(res.monthLabel) + ' สำหรับเงื่อนไขที่เลือก</div>') +
+      '</div>';
+
+      resultEl.innerHTML = html;
+    }
+
+    function exportCarbonReport_() {
+      if (!lastCarbonReportParams_) return;
+      const btn = document.getElementById('carExportBtn');
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="border-color:rgba(16,27,51,.35);border-top-color:var(--navy);"></span>กำลังสร้างไฟล์...';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.innerHTML = original;
+          if (!res.success) { showToast(res.message || 'Export ไม่สำเร็จ', true); return; }
+          downloadBase64File_(res.base64, res.fileName);
+          showToast('ดาวน์โหลดไฟล์สำเร็จ');
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.innerHTML = original;
+          showToast('Export ไม่สำเร็จ: ' + err.message, true);
+        })
+        .exportCarbonEmissionReportExcel(sessionToken, lastCarbonReportParams_.year, lastCarbonReportParams_.month, lastCarbonReportParams_.fleet, lastCarbonReportParams_.driver);
     }
 
     /* ---------- Supervisor: รับน้ำมันเข้าถัง + สถานะน้ำมันแบบเรียลไทม์ ---------- */
