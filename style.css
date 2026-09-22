@@ -886,6 +886,21 @@
     .hr-chart-dot.hr-dot-watch { fill: var(--amber); }
     .hr-chart-dot.hr-dot-risk { fill: var(--danger); }
 
+    /* ---------- กราฟรถเสียกลางทาง (Breakdown Dashboard) ---------- */
+    .bd-chart-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-top: 8px; }
+    .bd-bar-grid { stroke: var(--border); stroke-width: 1; }
+    .bd-bar-axis { fill: var(--text-soft); font-size: 11px; font-family: 'Sarabun', sans-serif; }
+    .bd-bar-rect { fill: var(--navy-light); }
+    .bd-bar-rect.active { fill: var(--amber); }
+    .bd-bar-value { fill: var(--navy); font-size: 11px; font-weight: 700; font-family: 'Sarabun', sans-serif; text-anchor: middle; }
+    .bd-donut-center-num { fill: var(--navy); font-family: 'Prompt', sans-serif; font-weight: 700; text-anchor: middle; }
+    .bd-donut-center-label { fill: var(--text-soft); font-size: 11px; font-family: 'Sarabun', sans-serif; text-anchor: middle; }
+    .bd-donut-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 14px; }
+    .bd-donut-legend-item { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text); }
+    .bd-donut-legend-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+    .bd-charts-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 720px) { .bd-charts-grid { grid-template-columns: 1fr 1fr; } }
+
     .hr-trend-table td:first-child { white-space: nowrap; font-weight: 600; }
     .hr-cell {
       display: inline-block;
