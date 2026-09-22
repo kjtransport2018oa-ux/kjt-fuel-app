@@ -566,8 +566,8 @@ function handlePwaInstallClick_() {
       fuelQrPollTimer_ = setInterval(loadDriverQrStatus_, 10000); // เช็คทุก 10 วิ ว่ามีงานใหม่เข้ามา/งานที่มีอยู่เติมเสร็จหรือยัง
     }
 
-    /** ดึงสถานะ QR ล่าสุดจาก backend — โชว์ QR เฉพาะตอนมีงาน "รอเติม" จริง ถ้ายังไม่มีงานขึ้นข้อความรอแทน
-     * re-render เฉพาะตอนสถานะเปลี่ยนจริง (has ↔ none) กันจอกระพริบทุก 10 วิ */
+    /** ดึงสถานะ QR ล่าสุดจาก backend — มี 3 สถานะ: 'none' (ยังไม่มีงาน), 'consent' (มีงานแต่ยังไม่กดยอมรับข้อตกลง),
+     * 'qr' (ยอมรับแล้ว โชว์ QR ได้) re-render เฉพาะตอนสถานะเปลี่ยนจริง กันจอกระพริบทุก 10 วิ */
     function loadDriverQrStatus_() {
       google.script.run
         .withSuccessHandler(function (res) {
@@ -580,12 +580,17 @@ function handlePwaInstallClick_() {
             return;
           }
 
-          const newState = res.hasPendingJob ? 'has' : 'none';
+          const newState = !res.hasPendingJob ? 'none' : (res.needsConsent ? 'consent' : 'qr');
           if (newState === fuelQrLastState_) return; // สถานะเดิม ไม่ต้อง re-render
           fuelQrLastState_ = newState;
 
-          if (!res.hasPendingJob) {
+          if (newState === 'none') {
             area.innerHTML = '<div class="empty-state" style="padding:32px 16px;">🕒 ยังไม่มีงานเติมน้ำมันเข้ามาในระบบตอนนี้<br>รอหัวหน้างานสร้างคิวให้ก่อนนะครับ</div>';
+            return;
+          }
+
+          if (newState === 'consent') {
+            renderFuelConsentScreen_(res);
             return;
           }
 
@@ -605,6 +610,71 @@ function handlePwaInstallClick_() {
           if (area) area.innerHTML = '<div class="empty-state">โหลดไม่สำเร็จ: ' + escapeHtml(err.message) + '</div>';
         })
         .getMyQrCode(sessionToken);
+    }
+
+    /* ---------- Terms & Regulations Screen — ข้อตกลง/กฎระเบียบก่อนรับ QR Code เติมน้ำมัน ---------- */
+
+    /** ส่วนที่ 1: Fuel Order Overview + ส่วนที่ 2: กฎระเบียบ (คลัง + ร้านปลายทาง) + ส่วนที่ 3: ปุ่มยอมรับ
+     *  QR Code ยังไม่แสดง ณ จุดนี้ — ต้องกดปุ่มยอมรับก่อนเท่านั้น (บังคับฝั่งเซิร์ฟเวอร์ด้วยใน submitFuelConsent) */
+    function renderFuelConsentScreen_(res) {
+      const area = document.getElementById('qrStatusArea');
+      const order = res.order;
+      const delivery = res.deliveryRules;
+      const isStoreSpecific = delivery.source === 'store';
+
+      const loadingRulesHtml = '<ul class="term-rule-list">' +
+        res.loadingRules.map(function (r) { return '<li>' + escapeHtml(r) + '</li>'; }).join('') +
+        '</ul>';
+
+      const deliveryLines = String(delivery.text || '').split('\n').filter(function (l) { return l.trim(); });
+      const deliveryRulesHtml = '<ul class="term-rule-list">' +
+        deliveryLines.map(function (l) { return '<li>' + escapeHtml(l.trim()) + '</li>'; }).join('') +
+        '</ul>';
+
+      area.innerHTML =
+        '<div style="text-align:left;">' +
+
+        '<div class="term-order-card">' +
+          '<div class="term-order-row"><span class="lbl">สถานที่ส่งสินค้า</span><span class="val">' + escapeHtml(order.location || '-') + '</span></div>' +
+          '<div class="term-order-row"><span class="lbl">ปลายทาง</span><span class="val">' + escapeHtml([order.district, order.province].filter(Boolean).join(', ') || '-') + '</span></div>' +
+          '<div class="term-order-row"><span class="lbl">ปริมาณน้ำมันที่ได้รับ</span><span class="val">' + Number(order.litersPlanned || 0).toLocaleString('th-TH') + ' ลิตร</span></div>' +
+        '</div>' +
+
+        '<div class="term-section-title"><h4>🏭 ข้อปฏิบัติขณะอยู่ในคลังโหลดสินค้า</h4></div>' +
+        loadingRulesHtml +
+
+        '<div class="term-section-title"><h4>📦 ข้อปฏิบัติ ณ ร้านค้า/ลูกค้าปลายทาง</h4>' +
+          '<span class="status-pill ' + (isStoreSpecific ? 'filled' : 'health-unknown') + '">' +
+            (isStoreSpecific ? 'กฎเฉพาะร้านนี้' : 'มาตรฐานกลาง') +
+          '</span>' +
+        '</div>' +
+        deliveryRulesHtml +
+
+        '<button type="button" class="btn btn-success term-accept-btn" id="fuelConsentBtn" onclick="submitFuelConsent_(\'' + escapeHtml(order.jobId) + '\')">' +
+          '✅ ยอมรับและรับ QR Code เติมน้ำมัน' +
+        '</button>' +
+        '</div>';
+    }
+
+    function submitFuelConsent_(jobId) {
+      const btn = document.getElementById('fuelConsentBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; }
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) {
+            if (btn) { btn.disabled = false; btn.textContent = '✅ ยอมรับและรับ QR Code เติมน้ำมัน'; }
+            showToast((res && res.message) || 'บันทึกไม่สำเร็จ', true);
+            return;
+          }
+          fuelQrLastState_ = null; // บังคับ re-render รอบถัดไปให้เปลี่ยนไปโชว์ QR แทนหน้าข้อตกลง
+          loadDriverQrStatus_();
+        })
+        .withFailureHandler(function (err) {
+          if (btn) { btn.disabled = false; btn.textContent = '✅ ยอมรับและรับ QR Code เติมน้ำมัน'; }
+          showToast('บันทึกไม่สำเร็จ: ' + err.message, true);
+        })
+        .submitFuelConsent(sessionToken, jobId);
     }
 
     function renderDriverHistory() {
