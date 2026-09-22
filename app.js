@@ -225,9 +225,15 @@ function maintInitPush_() {
         messaging.getToken({ vapidKey: MAINT_VAPID_KEY_, serviceWorkerRegistration: reg })
           .then(function (fcmToken) {
             if (!fcmToken) return;
-            const prevToken = localStorage.getItem(MAINT_FCM_TOKEN_KEY_);
-            if (prevToken === fcmToken) return; // token เดิม เคยลงทะเบียนไปแล้วตอนเข้าแอปรอบก่อน ไม่ต้องยิงซ้ำ
-            localStorage.setItem(MAINT_FCM_TOKEN_KEY_, fcmToken);
+            // สำคัญ: token ของ Firebase ผูกกับ "เครื่อง/เบราว์เซอร์" ไม่ได้ผูกกับ "คนที่ login อยู่"
+            // เครื่องเดิมสลับคน login ก็มักได้ token ตัวเดิมเป๊ะ ถ้าเทียบแค่ token เฉยๆ จะข้ามการลงทะเบียนซ้ำ
+            // ทำให้ backend ยังผูก token นี้ไว้กับ user คนเก่าอยู่ (บั๊ก: แจ้งเตือนของคนเก่าค้างมาที่เครื่องนี้
+            // หลังเปลี่ยนคน login) จึงต้องเทียบเป็นคู่ "username + token" แทน เพื่อบังคับลงทะเบียนใหม่ทุกครั้ง
+            // ที่เปลี่ยนตัวคน login บนเครื่องเดิม แม้ token ฝั่ง Firebase จะไม่เปลี่ยนก็ตาม
+            const registeredKey = (currentUser && currentUser.username || '') + '::' + fcmToken;
+            const prevKey = localStorage.getItem(MAINT_FCM_TOKEN_KEY_);
+            if (prevKey === registeredKey) return; // เคยลงทะเบียน "token นี้ + user คนนี้" ไปแล้วจริงๆ ไม่ต้องยิงซ้ำ
+            localStorage.setItem(MAINT_FCM_TOKEN_KEY_, registeredKey);
             google.script.run
               .withSuccessHandler(function () { /* เงียบๆ ไม่ต้อง toast รบกวน ไม่ใช่ action ที่ user กดเอง */ })
               .withFailureHandler(function (err) { console.warn('savePushToken failed', err); })
