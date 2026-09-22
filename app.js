@@ -2608,6 +2608,78 @@ function handlePwaInstallClick_() {
         .getBreakdownDashboard(sessionToken, year, month);
     }
 
+    const THAI_MONTHS_SHORT_ = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const BD_COLOR_PALETTE_ = ['#101B33', '#FCA311', '#1E8A65', '#D64545', '#1F3163', '#6C63FF', '#00A8A8', '#C97800', '#8E44AD', '#E67E22'];
+
+    /** กราฟโดนัทสัดส่วนตามสาเหตุ + legend พร้อม % ข้างๆ — ให้เห็นสัดส่วนปัญหาแต่ละประเภทชัดเจน เหมาะสำหรับแนบเป็นหลักฐานออดิท */
+    function breakdownCauseDonutSvg_(byCause, totalIncidents) {
+      if (!byCause.length || !totalIncidents) {
+        return '<div class="empty-state">ไม่มีเหตุการณ์รถเสียในเดือนนี้</div>';
+      }
+      const size = 200, cx = 100, cy = 100, r = 72, strokeW = 26;
+      const circumference = 2 * Math.PI * r;
+      let offset = 0;
+
+      let svg = '<svg class="hr-chart" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="กราฟสัดส่วนสาเหตุรถเสีย">';
+      byCause.forEach(function (c, i) {
+        const frac = c.count / totalIncidents;
+        const segLen = frac * circumference;
+        const color = BD_COLOR_PALETTE_[i % BD_COLOR_PALETTE_.length];
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + strokeW + '"' +
+          ' stroke-dasharray="' + segLen + ' ' + (circumference - segLen) + '" stroke-dashoffset="' + (-offset) + '"' +
+          ' transform="rotate(-90 ' + cx + ' ' + cy + ')"></circle>';
+        offset += segLen;
+      });
+      svg += '<text x="' + cx + '" y="' + (cy - 4) + '" class="bd-donut-center-num" font-size="26">' + totalIncidents + '</text>' +
+        '<text x="' + cx + '" y="' + (cy + 16) + '" class="bd-donut-center-label">ครั้งทั้งหมด</text>' +
+        '</svg>';
+
+      const legend = '<div class="bd-donut-legend">' + byCause.map(function (c, i) {
+        const color = BD_COLOR_PALETTE_[i % BD_COLOR_PALETTE_.length];
+        const pct = Math.round((c.count / totalIncidents) * 1000) / 10;
+        return '<div class="bd-donut-legend-item"><span class="bd-donut-legend-dot" style="background:' + color + ';"></span>' +
+          escapeHtml(c.cause) + ' — ' + c.count + ' ครั้ง (' + pct + '%)</div>';
+      }).join('') + '</div>';
+
+      return '<div class="hr-chart-wrap bd-chart-wrap">' + svg + legend + '</div>';
+    }
+
+    /** กราฟแท่งแนวโน้มรถเสียตลอดทั้งปี (12 เดือน) — เดือนที่กำลังดูอยู่ไฮไลต์สีเหลือง ที่เหลือสีกรมท่า
+     *  ใช้ "จำนวนครั้งที่เสีย" เป็นความสูงแท่ง เพราะสื่อความถี่ของปัญหาได้ตรงกว่า % ซึ่งจะแบนราบถ้ากองรถใหญ่ */
+    function breakdownYearTrendBarSvg_(yearTrend, selectedMonth) {
+      const hasData = yearTrend.some(function (t) { return t.count > 0; });
+      if (!hasData) return '<div class="empty-state">ยังไม่มีเหตุการณ์รถเสียในปีนี้</div>';
+
+      const W = 700, H = 260, padL = 36, padR = 16, padT = 20, padB = 40;
+      const maxVal = Math.max.apply(null, yearTrend.map(function (t) { return t.count; })) || 1;
+      const chartW = W - padL - padR, chartH = H - padT - padB;
+      const barGap = 10;
+      const barW = (chartW - barGap * (yearTrend.length - 1)) / yearTrend.length;
+      const yFor = function (v) { return padT + chartH - (v / maxVal) * chartH; };
+
+      let svg = '<svg class="hr-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="กราฟแนวโน้มรถเสียรายเดือนตลอดปี">';
+
+      [0, 0.5, 1].forEach(function (t) {
+        const v = maxVal * t;
+        const yy = yFor(v);
+        svg += '<line x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '" class="bd-bar-grid"></line>' +
+          '<text x="' + (padL - 6) + '" y="' + (yy + 4) + '" class="bd-bar-axis" text-anchor="end">' + Math.round(v) + '</text>';
+      });
+
+      yearTrend.forEach(function (t, i) {
+        const x = padL + i * (barW + barGap);
+        const barH = (t.count / maxVal) * chartH;
+        const y = padT + chartH - barH;
+        const isActive = t.month === Number(selectedMonth);
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + Math.max(barH, 1) + '" rx="3" class="bd-bar-rect' + (isActive ? ' active' : '') + '"></rect>';
+        if (t.count > 0) svg += '<text x="' + (x + barW / 2) + '" y="' + (y - 5) + '" class="bd-bar-value">' + t.count + '</text>';
+        svg += '<text x="' + (x + barW / 2) + '" y="' + (H - padB + 16) + '" class="bd-bar-axis" text-anchor="middle">' + THAI_MONTHS_SHORT_[t.month] + '</text>';
+      });
+
+      svg += '</svg>';
+      return '<div class="hr-chart-wrap bd-chart-wrap">' + svg + '</div>';
+    }
+
     function renderBreakdownDashboardResult_(res) {
       const resultEl = document.getElementById('bdDashboardResult');
       let html = '';
@@ -2620,12 +2692,13 @@ function handlePwaInstallClick_() {
         summaryCardHtml_(res.avgDowntimeMinutes, 'เวลาเฉลี่ยที่เสีย (นาที)') +
       '</div>';
 
-      html += '<div class="panel"><div class="panel-title"><h3>สรุปตามสาเหตุ — ' + escapeHtml(res.monthLabel) + '</h3></div>' +
-        (res.byCause.length ?
-          res.byCause.map(function (c) {
-            return '<div class="bulk-result-row ok"><span>' + escapeHtml(c.cause) + '</span><span>' + c.count + ' ครั้ง</span></div>';
-          }).join('')
-          : '<div class="empty-state">ไม่มีเหตุการณ์รถเสียในเดือนนี้</div>') +
+      html += '<div class="panel"><div class="panel-title"><h3>สัดส่วนตามสาเหตุ — ' + escapeHtml(res.monthLabel) + '</h3></div>' +
+        breakdownCauseDonutSvg_(res.byCause, res.totalIncidents) +
+      '</div>';
+
+      html += '<div class="panel"><div class="panel-title"><h3>แนวโน้มรถเสียรายเดือน — ตลอดปี ' + escapeHtml(String(res.year)) + '</h3></div>' +
+        '<p class="panel-hint">แท่งสีเหลืองคือเดือนที่กำลังดูอยู่ — ใช้เห็นภาพรวมทั้งปีเทียบกับ Snapshot รายเดือนด้านบน</p>' +
+        breakdownYearTrendBarSvg_(res.yearTrend, res.month) +
       '</div>';
 
       if (res.topPlates.length) {
