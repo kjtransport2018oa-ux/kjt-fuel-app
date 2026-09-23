@@ -419,6 +419,7 @@ function handlePwaInstallClick_() {
       try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* ignore */ }
       sessionToken = null;
       currentUser = null;
+      document.getElementById('policyGateModal').classList.remove('open'); // กันเหนียว: ถ้า checkPolicyConsent ตอบช้ามาถึงหลัง logout ไปแล้ว จะได้ไม่ทับหน้า login
       document.getElementById('appScreen').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
       document.getElementById('loginUsername').value = '';
@@ -692,15 +693,17 @@ function handlePwaInstallClick_() {
     /** เรียกทุกครั้งที่คนขับเข้าแอป — ถ้ามีหัวข้อนโยบายที่ยังไม่ยอมรับครบ จะเปิดหน้ากั้นทับทันที
      *  ถ้าดึงข้อมูลไม่สำเร็จ (เน็ตหลุด/ยังไม่ได้ setup ชีต) จะไม่บล็อกแอป ปล่อยให้ใช้งานได้ก่อน แล้วลองเช็คใหม่ตอนเปิดแอปรอบหน้า */
     function checkPolicyGate_() {
+      const tokenAtRequest = sessionToken; // จำ token ไว้ ณ ตอนยิง request — เผื่อ logout ไปแล้วระหว่างรอตอบกลับ
       google.script.run
         .withSuccessHandler(function (res) {
           if (!res || !res.success || !res.needsConsent) return;
+          if (sessionToken !== tokenAtRequest) return; // token เปลี่ยน/ว่างแล้ว (logout ไปแล้ว) — ไม่ต้องโชว์ทับหน้า login
           policyGateItems_ = res.policies;
           renderPolicyGateChecklist_();
           document.getElementById('policyGateModal').classList.add('open');
         })
         .withFailureHandler(function () { /* เงียบไว้ ไม่บล็อกแอปถ้าเช็คนโยบายไม่สำเร็จ */ })
-        .checkPolicyConsent(sessionToken);
+        .checkPolicyConsent(tokenAtRequest);
     }
 
     /** หน้ารายการหัวข้อนโยบาย (checklist) — กดที่แถวเพื่อเปิดอ่าน, checkbox ติ๊กอัตโนมัติหลังกดยอมรับในหน้าอ่าน
