@@ -466,6 +466,20 @@ function handlePwaInstallClick_() {
       driverView = 'menu';
       attendantView = 'menu';
 
+      if (currentUser.role === 'Driver') {
+        // คนขับ: ต้องเช็คนโยบายให้ผ่านก่อน ถึงจะเห็นเมนู — โชว์หน้ารอสั้นๆ กันเห็นเมนูก่อนแล้วโดนหน้ากั้นซ้อนทับทีหลัง
+        document.getElementById('mainContent').innerHTML =
+          '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังตรวจสอบนโยบาย...</p></div>';
+        checkPolicyGate_();
+        return; // enterAppContinue_() จะถูกเรียกต่อเองจาก checkPolicyGate_ / closePolicyGate_
+      }
+
+      enterAppContinue_();
+    }
+
+    /** ส่วนที่เหลือของการเข้าแอป (render เมนูจริง + งาน background ต่างๆ) — แยกออกมาจาก enterApp()
+     *  เพื่อให้ Driver ต้องผ่านหน้ากั้นนโยบายให้ครบก่อน ถึงจะมาถึงจุดนี้ได้ */
+    function enterAppContinue_() {
       // เปิดแอปมาจากการกด notification ที่แนบ deep-link มาด้วย (เช่น แจ้งเตือนอนุมัติน้ำมัน) — พาไปหน้านั้นตรงๆ
       const deepLinkOpen = new URLSearchParams(location.search).get('open');
       if (deepLinkOpen === 'fuelQr' && currentUser.role === 'Driver') driverView = 'qr';
@@ -475,8 +489,6 @@ function handlePwaInstallClick_() {
       renderOfflineBanner_();
       trySyncOfflineQueue_(false); // เข้าแอปสำเร็จ (login ตรง/auto-login) — ลองซิงค์รายการที่ค้างจากรอบก่อนทันที
       maintInitPush_(); // Phase 4: ขอสิทธิ์แจ้งเตือน + ลงทะเบียน FCM token ของเครื่องนี้ (เงียบๆ ถ้าไม่รองรับ/ถูกปฏิเสธ)
-
-      if (currentUser.role === 'Driver') checkPolicyGate_(); // เมนูขึ้นก่อนได้ตามปกติ แต่ถ้ามีนโยบายค้างอยู่ หน้ากั้นจะซ้อนทับบล็อกการใช้งานทันที
     }
 
     let adminActiveTab = 'schedule';
@@ -696,13 +708,20 @@ function handlePwaInstallClick_() {
       const tokenAtRequest = sessionToken; // จำ token ไว้ ณ ตอนยิง request — เผื่อ logout ไปแล้วระหว่างรอตอบกลับ
       google.script.run
         .withSuccessHandler(function (res) {
-          if (!res || !res.success || !res.needsConsent) return;
-          if (sessionToken !== tokenAtRequest) return; // token เปลี่ยน/ว่างแล้ว (logout ไปแล้ว) — ไม่ต้องโชว์ทับหน้า login
-          policyGateItems_ = res.policies;
-          renderPolicyGateChecklist_();
-          document.getElementById('policyGateModal').classList.add('open');
+          if (sessionToken !== tokenAtRequest) return; // logout ไปแล้วระหว่างรอตอบกลับ — ไม่ต้องทำอะไรต่อ
+          if (res && res.success && res.needsConsent) {
+            policyGateItems_ = res.policies;
+            renderPolicyGateChecklist_();
+            document.getElementById('policyGateModal').classList.add('open');
+            return; // รอผู้ใช้กดยอมรับให้ครบแล้วกด "เริ่มปฏิบัติงาน" — closePolicyGate_() จะพาเข้าเมนูต่อเอง
+          }
+          enterAppContinue_(); // ไม่มีนโยบายค้าง — เข้าเมนูต่อได้เลย
         })
-        .withFailureHandler(function () { /* เงียบไว้ ไม่บล็อกแอปถ้าเช็คนโยบายไม่สำเร็จ */ })
+        .withFailureHandler(function () {
+          // เชื่อมต่อ/เช็คนโยบายไม่สำเร็จ (เน็ตหลุด/ยังไม่ได้ setup ชีต) — ไม่บล็อกแอป ปล่อยเข้าเมนูไปก่อน
+          if (sessionToken !== tokenAtRequest) return;
+          enterAppContinue_();
+        })
         .checkPolicyConsent(tokenAtRequest);
     }
 
@@ -787,6 +806,7 @@ function handlePwaInstallClick_() {
     /** ปิดหน้ากั้น — เรียกได้จากปุ่ม "เริ่มปฏิบัติงาน" เท่านั้น (ไม่มีทางปิดด้วยการคลิกฉากหลัง/กดที่อื่น) */
     function closePolicyGate_() {
       document.getElementById('policyGateModal').classList.remove('open');
+      enterAppContinue_(); // ผ่านนโยบายครบแล้ว — เข้าเมนูจริงตอนนี้
     }
 
     function renderDriverHistory() {
