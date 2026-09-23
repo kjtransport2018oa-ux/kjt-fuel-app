@@ -474,6 +474,8 @@ function handlePwaInstallClick_() {
       renderOfflineBanner_();
       trySyncOfflineQueue_(false); // เข้าแอปสำเร็จ (login ตรง/auto-login) — ลองซิงค์รายการที่ค้างจากรอบก่อนทันที
       maintInitPush_(); // Phase 4: ขอสิทธิ์แจ้งเตือน + ลงทะเบียน FCM token ของเครื่องนี้ (เงียบๆ ถ้าไม่รองรับ/ถูกปฏิเสธ)
+
+      if (currentUser.role === 'Driver') checkPolicyGate_(); // เมนูขึ้นก่อนได้ตามปกติ แต่ถ้ามีนโยบายค้างอยู่ หน้ากั้นจะซ้อนทับบล็อกการใช้งานทันที
     }
 
     let adminActiveTab = 'schedule';
@@ -681,6 +683,107 @@ function handlePwaInstallClick_() {
           showToast('บันทึกไม่สำเร็จ: ' + err.message, true);
         })
         .submitFuelConsent(sessionToken, jobId);
+    }
+
+    /* ---------- Policy Consent Gate — หน้ากั้นยินยอมรับนโยบายบริษัทก่อนเข้าเมนูปกติ (Driver) ---------- */
+
+    let policyGateItems_ = []; // [{policyId, version, title, bodyHtml, accepted}] — ดึงมาตอนเปิดแอป
+
+    /** เรียกทุกครั้งที่คนขับเข้าแอป — ถ้ามีหัวข้อนโยบายที่ยังไม่ยอมรับครบ จะเปิดหน้ากั้นทับทันที
+     *  ถ้าดึงข้อมูลไม่สำเร็จ (เน็ตหลุด/ยังไม่ได้ setup ชีต) จะไม่บล็อกแอป ปล่อยให้ใช้งานได้ก่อน แล้วลองเช็คใหม่ตอนเปิดแอปรอบหน้า */
+    function checkPolicyGate_() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success || !res.needsConsent) return;
+          policyGateItems_ = res.policies;
+          renderPolicyGateChecklist_();
+          document.getElementById('policyGateModal').classList.add('open');
+        })
+        .withFailureHandler(function () { /* เงียบไว้ ไม่บล็อกแอปถ้าเช็คนโยบายไม่สำเร็จ */ })
+        .checkPolicyConsent(sessionToken);
+    }
+
+    /** หน้ารายการหัวข้อนโยบาย (checklist) — กดที่แถวเพื่อเปิดอ่าน, checkbox ติ๊กอัตโนมัติหลังกดยอมรับในหน้าอ่าน
+     *  ครบทุกข้อแล้วถึงจะมีปุ่ม "เริ่มปฏิบัติงาน" โผล่ขึ้นมาให้กดปิดหน้าต่างนี้ */
+    function renderPolicyGateChecklist_() {
+      const el = document.getElementById('policyGateModalInner');
+      const allAccepted = policyGateItems_.every(function (p) { return p.accepted; });
+
+      el.innerHTML =
+        '<h3>📋 นโยบายบริษัท</h3>' +
+        '<p class="panel-hint" style="margin:-8px 0 16px;">กรุณากดเปิดอ่านและยอมรับให้ครบทุกข้อ ก่อนเริ่มปฏิบัติงาน</p>' +
+        '<div class="policy-list">' +
+          policyGateItems_.map(function (p, i) {
+            return '<div class="policy-item' + (p.accepted ? ' accepted' : '') + '" onclick="openPolicyReading_(' + i + ')">' +
+              '<span class="policy-item-check">' + (p.accepted ? '✓' : '') + '</span>' +
+              '<span class="policy-item-label">' + (i + 1) + '. ' + escapeHtml(p.title) + '</span>' +
+              '<span class="policy-item-hint">' + (p.accepted ? 'อ่านแล้ว' : 'กดเปิดอ่าน ›') + '</span>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+        (allAccepted ?
+          '<button type="button" class="btn btn-success policy-start-btn" onclick="closePolicyGate_()">🚀 เริ่มปฏิบัติงาน</button>' :
+          '');
+    }
+
+    /** หน้าอ่านเนื้อหาเต็มของหัวข้อ index — ปุ่ม "ยอมรับ" จะซ่อนไว้ก่อน โผล่ให้กดได้ก็ต่อเมื่อเลื่อนอ่านถึงล่างสุดแล้วเท่านั้น */
+    function openPolicyReading_(index) {
+      const p = policyGateItems_[index];
+      const el = document.getElementById('policyGateModalInner');
+      const alreadyAccepted = p.accepted;
+
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="renderPolicyGateChecklist_()">← กลับ</button>' +
+        '<h3>' + escapeHtml(p.title) + '</h3>' +
+        '<div class="policy-read-body" id="policyReadBody">' + p.bodyHtml + '</div>' +
+        (alreadyAccepted ?
+          '<p class="panel-hint" style="text-align:center;margin-top:12px;">✓ ยอมรับหัวข้อนี้ไปแล้ว</p>' :
+          '<button type="button" class="btn btn-success policy-read-accept-btn" id="policyAcceptBtn" style="display:none;" onclick="acceptPolicy_(' + index + ')">✅ ยอมรับ</button>' +
+          '<p class="panel-hint" id="policyScrollHint" style="text-align:center;margin-top:10px;">เลื่อนอ่านให้ถึงด้านล่างสุด เพื่อกดยอมรับ</p>');
+
+      if (alreadyAccepted) return; // อ่านซ้ำได้ แต่ไม่ต้องกดยอมรับซ้ำ
+
+      const bodyEl = document.getElementById('policyReadBody');
+      const btnEl = document.getElementById('policyAcceptBtn');
+
+      function checkScrollEnd_() {
+        // เผื่อ 4px กันกรณีความสูงคำนวณเพี้ยนเล็กน้อยบนบางอุปกรณ์ ไม่งั้นปุ่มไม่ขึ้นเป๊ะๆ ตอนเลื่อนถึงล่างสุดจริง
+        if (bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 4) {
+          btnEl.style.display = 'block';
+          const hint = document.getElementById('policyScrollHint');
+          if (hint) hint.style.display = 'none';
+          bodyEl.removeEventListener('scroll', checkScrollEnd_);
+        }
+      }
+      bodyEl.addEventListener('scroll', checkScrollEnd_);
+      checkScrollEnd_(); // เผื่อเนื้อหาสั้นจนไม่ต้องเลื่อนเลย ก็ให้ปุ่มขึ้นทันที
+    }
+
+    function acceptPolicy_(index) {
+      const p = policyGateItems_[index];
+      const btn = document.getElementById('policyAcceptBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; }
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) {
+            if (btn) { btn.disabled = false; btn.textContent = '✅ ยอมรับ'; }
+            showToast((res && res.message) || 'บันทึกไม่สำเร็จ', true);
+            return;
+          }
+          policyGateItems_[index].accepted = true;
+          renderPolicyGateChecklist_(); // กลับไปหน้ารายการ — checkbox หัวข้อนี้ติ๊กให้อัตโนมัติ
+        })
+        .withFailureHandler(function (err) {
+          if (btn) { btn.disabled = false; btn.textContent = '✅ ยอมรับ'; }
+          showToast('บันทึกไม่สำเร็จ: ' + err.message, true);
+        })
+        .submitPolicyConsent(sessionToken, p.policyId, p.version);
+    }
+
+    /** ปิดหน้ากั้น — เรียกได้จากปุ่ม "เริ่มปฏิบัติงาน" เท่านั้น (ไม่มีทางปิดด้วยการคลิกฉากหลัง/กดที่อื่น) */
+    function closePolicyGate_() {
+      document.getElementById('policyGateModal').classList.remove('open');
     }
 
     function renderDriverHistory() {
