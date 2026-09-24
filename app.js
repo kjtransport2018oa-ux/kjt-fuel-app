@@ -809,6 +809,64 @@ function handlePwaInstallClick_() {
       enterAppContinue_(); // ผ่านนโยบายครบแล้ว — เข้าเมนูจริงตอนนี้
     }
 
+    /* ---------- Policy Browser (โหมดดูอย่างเดียว) — ปุ่ม "นโยบายบริษัท" ในเมนูหัวหน้างาน เปิดดูได้ทุกเมื่อ ปิดได้ตลอด ไม่บังคับติ๊กยอมรับ ---------- */
+    let policyViewItems_ = []; // [{policyId, title, bodyHtml}] — ใช้ modal เดียวกับหน้ากั้นของคนขับ (คนละโหมด ไม่ชนกันเพราะหัวหน้างานไม่โดนหน้ากั้นบังคับ)
+
+    function openPolicyBrowser_() {
+      document.getElementById('policyGateModal').classList.add('open');
+      document.getElementById('policyGateModalInner').innerHTML =
+        '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดนโยบาย...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.success) {
+            showToast((res && res.message) || 'โหลดนโยบายไม่สำเร็จ', true);
+            closePolicyBrowser_();
+            return;
+          }
+          policyViewItems_ = res.policies;
+          renderPolicyViewList_();
+        })
+        .withFailureHandler(function (err) {
+          showToast('โหลดนโยบายไม่สำเร็จ: ' + err.message, true);
+          closePolicyBrowser_();
+        })
+        .getPolicyList(sessionToken);
+    }
+
+    function renderPolicyViewList_() {
+      const el = document.getElementById('policyGateModalInner');
+      el.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+          '<h3 style="margin:0;">📋 นโยบายบริษัท</h3>' +
+          '<button type="button" onclick="closePolicyBrowser_()" aria-label="ปิด" style="font-size:22px;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-soft);padding:2px 6px;">✕</button>' +
+        '</div>' +
+        '<p class="panel-hint" style="margin:-4px 0 16px;">รายการนโยบายที่บังคับใช้อยู่ในปัจจุบัน (' + policyViewItems_.length + ' หัวข้อ)</p>' +
+        '<div class="policy-list">' +
+          policyViewItems_.map(function (p, i) {
+            return '<div class="policy-item" onclick="openPolicyViewReading_(' + i + ')">' +
+              '<span class="policy-item-check" style="background:transparent;border-color:var(--border);color:var(--text-soft);">' + (i + 1) + '</span>' +
+              '<span class="policy-item-label">' + escapeHtml(p.title) + '</span>' +
+              '<span class="policy-item-hint">อ่าน ›</span>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+    }
+
+    function openPolicyViewReading_(index) {
+      const p = policyViewItems_[index];
+      const el = document.getElementById('policyGateModalInner');
+      el.innerHTML =
+        '<button type="button" class="back-link" onclick="renderPolicyViewList_()">← กลับ</button>' +
+        '<h3>' + escapeHtml(p.title) + '</h3>' +
+        '<div class="policy-read-body">' + p.bodyHtml + '</div>';
+    }
+
+    /** ปิดได้ตลอดเวลา (ต่างจาก closePolicyGate_ ของคนขับที่บังคับติ๊กครบก่อน) — ไม่ต้องเรียก enterAppContinue_ เพราะเข้าเมนูปกติอยู่แล้ว */
+    function closePolicyBrowser_() {
+      document.getElementById('policyGateModal').classList.remove('open');
+    }
+
     function renderDriverHistory() {
       const el = document.getElementById('mainContent');
       if (!driverHistoryMonth) {
@@ -4066,6 +4124,9 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openVehicleHandoverWindow_()">' +
             '<span class="dmb-icon">🚚</span><span class="dmb-label">ใบส่งมอบ / รับคืนรถ</span>' +
+          '</button>' +
+          '<button type="button" class="driver-menu-btn" onclick="openPolicyBrowser_()">' +
+            '<span class="dmb-icon">📋</span><span class="dmb-label">นโยบายบริษัท</span>' +
           '</button>' +
         '</div>';
     }
