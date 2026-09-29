@@ -809,64 +809,6 @@ function handlePwaInstallClick_() {
       enterAppContinue_(); // ผ่านนโยบายครบแล้ว — เข้าเมนูจริงตอนนี้
     }
 
-    /* ---------- Policy Browser (โหมดดูอย่างเดียว) — ปุ่ม "นโยบายบริษัท" ในเมนูหัวหน้างาน เปิดดูได้ทุกเมื่อ ปิดได้ตลอด ไม่บังคับติ๊กยอมรับ ---------- */
-    let policyViewItems_ = []; // [{policyId, title, bodyHtml}] — ใช้ modal เดียวกับหน้ากั้นของคนขับ (คนละโหมด ไม่ชนกันเพราะหัวหน้างานไม่โดนหน้ากั้นบังคับ)
-
-    function openPolicyBrowser_() {
-      document.getElementById('policyGateModal').classList.add('open');
-      document.getElementById('policyGateModalInner').innerHTML =
-        '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังโหลดนโยบาย...</p></div>';
-
-      google.script.run
-        .withSuccessHandler(function (res) {
-          if (!res || !res.success) {
-            showToast((res && res.message) || 'โหลดนโยบายไม่สำเร็จ', true);
-            closePolicyBrowser_();
-            return;
-          }
-          policyViewItems_ = res.policies;
-          renderPolicyViewList_();
-        })
-        .withFailureHandler(function (err) {
-          showToast('โหลดนโยบายไม่สำเร็จ: ' + err.message, true);
-          closePolicyBrowser_();
-        })
-        .getPolicyList(sessionToken);
-    }
-
-    function renderPolicyViewList_() {
-      const el = document.getElementById('policyGateModalInner');
-      el.innerHTML =
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
-          '<h3 style="margin:0;">📋 นโยบายบริษัท</h3>' +
-          '<button type="button" onclick="closePolicyBrowser_()" aria-label="ปิด" style="font-size:22px;line-height:1;background:none;border:none;cursor:pointer;color:var(--text-soft);padding:2px 6px;">✕</button>' +
-        '</div>' +
-        '<p class="panel-hint" style="margin:-4px 0 16px;">รายการนโยบายที่บังคับใช้อยู่ในปัจจุบัน (' + policyViewItems_.length + ' หัวข้อ)</p>' +
-        '<div class="policy-list">' +
-          policyViewItems_.map(function (p, i) {
-            return '<div class="policy-item" onclick="openPolicyViewReading_(' + i + ')">' +
-              '<span class="policy-item-check" style="background:transparent;border-color:var(--border);color:var(--text-soft);">' + (i + 1) + '</span>' +
-              '<span class="policy-item-label">' + escapeHtml(p.title) + '</span>' +
-              '<span class="policy-item-hint">อ่าน ›</span>' +
-            '</div>';
-          }).join('') +
-        '</div>';
-    }
-
-    function openPolicyViewReading_(index) {
-      const p = policyViewItems_[index];
-      const el = document.getElementById('policyGateModalInner');
-      el.innerHTML =
-        '<button type="button" class="back-link" onclick="renderPolicyViewList_()">← กลับ</button>' +
-        '<h3>' + escapeHtml(p.title) + '</h3>' +
-        '<div class="policy-read-body">' + p.bodyHtml + '</div>';
-    }
-
-    /** ปิดได้ตลอดเวลา (ต่างจาก closePolicyGate_ ของคนขับที่บังคับติ๊กครบก่อน) — ไม่ต้องเรียก enterAppContinue_ เพราะเข้าเมนูปกติอยู่แล้ว */
-    function closePolicyBrowser_() {
-      document.getElementById('policyGateModal').classList.remove('open');
-    }
-
     function renderDriverHistory() {
       const el = document.getElementById('mainContent');
       if (!driverHistoryMonth) {
@@ -1181,7 +1123,7 @@ function handlePwaInstallClick_() {
     }
 
     /* ---------- Fuel Attendant: สแกน QR + บันทึกการเติมจริง ---------- */
-    let attendantView = 'menu'; // menu | scan | jobs | meter | signature | report
+    let attendantView = 'menu'; // menu | scan | jobs | meter | report
     let scannerWindow = null;
     let attendantDriver = null;
     let attendantJobs = [];
@@ -1189,8 +1131,6 @@ function handlePwaInstallClick_() {
     let attendantStartMeter = '';
     let attendantEndMeter = '';
     let attendantLitersActual = null;
-    let driverSigPad = null;
-    let staffSigPad = null;
     let attendantReportFrom = '';
     let attendantReportTo = '';
 
@@ -1198,7 +1138,6 @@ function handlePwaInstallClick_() {
       if (attendantView === 'scan') { renderAttendantScan(); return; }
       if (attendantView === 'jobs') { renderAttendantJobs(); return; }
       if (attendantView === 'meter') { renderAttendantMeter(); return; }
-      if (attendantView === 'signature') { renderAttendantSignature(); return; }
       if (attendantView === 'report') { renderAttendantReport(); return; }
       // ช่างซ่อมบำรุงใช้เมนูน้ำมันชุดเดียวกับคนเติมน้ำมัน แล้วมีเมนูคิวซ่อมเพิ่มมาอีก 2 รายการ
       if (attendantView === 'maintQueue') { renderMaintenanceCalendarPage_('mainContent', "goAttendantView('menu')"); return; }
@@ -1390,26 +1329,7 @@ function handlePwaInstallClick_() {
     function confirmMeter() {
       attendantStartMeter = document.getElementById('meterStart').value;
       attendantEndMeter = document.getElementById('meterEnd').value;
-      attendantView = 'signature';
-      renderAttendantHome();
-    }
-
-    function renderAttendantSignature() {
-      const el = document.getElementById('mainContent');
-      el.innerHTML =
-        '<button type="button" class="back-link" onclick="attendantView=\'meter\';renderAttendantHome();">← กลับ</button>' +
-        '<div class="panel">' +
-          '<h3 style="margin:0 0 4px;color:var(--navy);">เซ็นยืนยันการเติมน้ำมัน</h3>' +
-          '<p class="panel-hint">เติมจริง ' + attendantLitersActual + ' ลิตร — ให้คนขับและผู้เติมเซ็นชื่อยืนยัน</p>' +
-          '<div class="sig-label"><span>ลายเซ็นคนขับ</span><button type="button" onclick="clearSig_(driverSigPad)">ล้าง</button></div>' +
-          '<canvas id="driverSigCanvas" class="signature-box" width="320" height="140"></canvas>' +
-          '<div class="sig-label"><span>ลายเซ็นผู้เติมน้ำมัน</span><button type="button" onclick="clearSig_(staffSigPad)">ล้าง</button></div>' +
-          '<canvas id="staffSigCanvas" class="signature-box" width="320" height="140"></canvas>' +
-          '<button class="btn btn-amber" style="margin-top:18px;" id="submitFuelBtn" onclick="submitAttendantFuelLog()">ยืนยันการเติมน้ำมัน</button>' +
-        '</div>';
-
-      driverSigPad = initSignaturePad_('driverSigCanvas');
-      staffSigPad = initSignaturePad_('staffSigCanvas');
+      submitAttendantFuelLog(); // ตัดขั้นตอนเซ็นยืนยันออก — รหัส session ของผู้เติมผูกกับตัวบุคคลอยู่แล้ว (ผ่าน requireRole_ ฝั่งเซิร์ฟเวอร์) จึงยืนยันตัวตนซ้ำด้วยลายเซ็นไม่จำเป็นอีกต่อไป
     }
 
     function initSignaturePad_(canvasId) {
@@ -1451,10 +1371,7 @@ function handlePwaInstallClick_() {
     function clearSig_(pad) { if (pad) pad.clear(); }
 
     function submitAttendantFuelLog() {
-      if (!driverSigPad || driverSigPad.isEmpty()) { showToast('กรุณาให้คนขับเซ็นชื่อ', true); return; }
-      if (!staffSigPad || staffSigPad.isEmpty()) { showToast('กรุณาเซ็นชื่อผู้เติมน้ำมัน', true); return; }
-
-      const btn = document.getElementById('submitFuelBtn');
+      const btn = document.getElementById('meterConfirmBtn');
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>กำลังบันทึก...';
 
@@ -1462,15 +1379,13 @@ function handlePwaInstallClick_() {
         scheduleId: attendantSelectedJob.id,
         startMeter: attendantStartMeter,
         endMeter: attendantEndMeter,
-        driverSignature: driverSigPad.toDataURL(),
-        attendantSignature: staffSigPad.toDataURL(),
         clientRequestId: genClientRequestId_() // ใช้กันบันทึกซ้ำตอน retry/sync ภายหลัง
       };
 
       callGasApi_('submitFuelLog', [sessionToken, payload])
         .then(function (res) {
           btn.disabled = false;
-          btn.textContent = 'ยืนยันการเติมน้ำมัน';
+          btn.textContent = 'ยืนยันจำนวนลิตร';
           if (res.success) {
             showToast('บันทึกการเติมน้ำมันเรียบร้อย (' + res.litersActual + ' ลิตร)');
           } else {
@@ -1483,7 +1398,7 @@ function handlePwaInstallClick_() {
           // เน็ตหลุด/เซิร์ฟเวอร์ตอบช้าเกิน 15 วิ/ล่ม — เก็บเข้าคิวออฟไลน์แทนที่จะปล่อยให้ user ค้างรอหน้างาน
           queueFuelLogOffline_(payload);
           btn.disabled = false;
-          btn.textContent = 'ยืนยันการเติมน้ำมัน';
+          btn.textContent = 'ยืนยันจำนวนลิตร';
           showToast('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ตอนนี้ บันทึกข้อมูลไว้ในเครื่องแล้ว จะซิงค์อัตโนมัติเมื่อกลับมาใช้งานได้', true);
           finishAttendantFuelSubmit_();
           trySyncOfflineQueue_(false); // ลองซิงค์ทันทีเผื่อจริงๆ แค่สะดุดแป๊บเดียว
@@ -4124,9 +4039,6 @@ function handlePwaInstallClick_() {
           '</button>' +
           '<button type="button" class="driver-menu-btn" onclick="openVehicleHandoverWindow_()">' +
             '<span class="dmb-icon">🚚</span><span class="dmb-label">ใบส่งมอบ / รับคืนรถ</span>' +
-          '</button>' +
-          '<button type="button" class="driver-menu-btn" onclick="openPolicyBrowser_()">' +
-            '<span class="dmb-icon">📋</span><span class="dmb-label">นโยบายบริษัท</span>' +
           '</button>' +
         '</div>';
     }
