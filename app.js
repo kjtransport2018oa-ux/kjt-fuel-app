@@ -11,13 +11,17 @@ let editingUsername = null; // null = creating new user
 
 // แก้เป็น URL เว็บแอป Apps Script ที่ deploy ไว้ (เหมือนเดิม ไม่เปลี่ยน)
 const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwCfj9OYb3CZQZLxt0bmxA1fIcsPuP_Djz5yTH00kyFORFcqgNjJQsbeZXUOUlkt5l1/exec';
-const API_TIMEOUT_MS_ = 15000; // ถ้าเซิร์ฟเวอร์ไม่ตอบภายใน 15 วิ ถือว่า "ช้าผิดปกติ" ตัดจบไม่ให้ค้างรอไม่มีที่สิ้นสุด
+const API_TIMEOUT_MS_ = 30000; // ถ้าเซิร์ฟเวอร์ไม่ตอบภายใน 15 วิ ถือว่า "ช้าผิดปกติ" ตัดจบไม่ให้ค้างรอไม่มีที่สิ้นสุด
 // คำสั่งที่ "ช้าเป็นปกติ" ต้องให้เวลามากกว่า 15 วิ ไม่งั้นจะถูกตัดทิ้งกลางคันทั้งที่ฝั่งเซิร์ฟเวอร์กำลังเขียนข้อมูลอยู่
 // - previewHealthImport / confirmHealthImport: ส่งข้อมูลทีละร้อยคน + อัปโหลดไฟล์ขึ้น Drive
 // - addFuelScheduleRows / createMaintenanceBooking / updateMaintenanceStatus / submitBreakdownLog: เขียนข้อมูลหลัก
 //   เร็วอยู่แล้ว แต่กันเผื่อไว้อีกชั้นระหว่างที่ backend เพิ่งเปลี่ยนมาคิวแจ้งเตือนแบบ async (ดู PendingPush ใน
 //   MaintenancePush.gs) — ถ้า deploy backend ใหม่ยังไม่ทันหรือมีคิวค้างผิดปกติ จะได้ไม่ตัดจบเร็วเกินไป
 const API_LONG_TIMEOUT_MS_ = 180000;
+// คำสั่งที่ "ปลอดภัยถ้าเรียกซ้ำ" — ถ้า timeout/เน็ตสะดุดครั้งแรก (มักเกิดจาก Apps Script cold start) ให้ลองใหม่อัตโนมัติ 1 ครั้ง
+const API_RETRY_FNS_ = ['loginUser', 'checkSession'];
+// login ให้เวลามากกว่าปกติ เพราะเป็นคำสั่งแรกที่มักเจอ cold start และต้องอ่าน/เขียนชีตหลายอย่าง
+const API_LOGIN_TIMEOUT_MS_ = 45000;
 const API_LONG_TIMEOUT_FNS_ = [
   'previewHealthImport', 'confirmHealthImport',
   'addFuelScheduleRows', 'createMaintenanceBooking', 'updateMaintenanceStatus', 'submitBreakdownLog'
@@ -26,13 +30,25 @@ const API_LONG_TIMEOUT_FNS_ = [
 /** fetch พร้อม timeout — กันปัญหา "เซิร์ฟเวอร์ตอบสนองช้า" ที่ทำให้หน้าเว็บหมุนค้างไม่รู้จบ */
 function fetchWithTimeout_(url, options, timeoutMs) {
   const controller = new AbortController();
-  const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(function () { timedOut = true; controller.abort(); }, timeoutMs);
   return fetch(url, Object.assign({}, options, { signal: controller.signal }))
+    .catch(function (err) {
+      // abort() เฉยๆ จะได้ข้อความ "signal is aborted without reason" ที่ผู้ใช้ไม่เข้าใจ — แปลงเป็นข้อความไทยที่บอกสาเหตุจริง
+      if (timedOut || (err && err.name === 'AbortError')) {
+        const e = new Error('เซิร์ฟเวอร์ตอบสนองช้าเกินกำหนด (' + Math.round(timeoutMs / 1000) + ' วินาที) กรุณาลองใหม่อีกครั้ง');
+        e.isTimeout = true;
+        throw e;
+      }
+      throw err;
+    })
     .finally(function () { clearTimeout(timer); });
 }
 
-function callGasApi_(functionName, args) {
-  const timeoutMs = API_LONG_TIMEOUT_FNS_.indexOf(functionName) !== -1 ? API_LONG_TIMEOUT_MS_ : API_TIMEOUT_MS_;
+function callGasApi_(functionName, args, attempt) {
+  attempt = attempt || 0;
+  const timeoutMs = API_LONG_TIMEOUT_FNS_.indexOf(functionName) !== -1 ? API_LONG_TIMEOUT_MS_
+    : (functionName === 'loginUser' ? API_LOGIN_TIMEOUT_MS_ : API_TIMEOUT_MS_);
   return fetchWithTimeout_(API_BASE_URL, {
     method: 'POST',
     // ใช้ text/plain เพื่อให้เป็น "simple request" เลี่ยง CORS preflight (OPTIONS) ที่ Apps Script รองรับได้ไม่ดี
@@ -41,8 +57,17 @@ function callGasApi_(functionName, args) {
   }, timeoutMs).then(function (res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
+  }).catch(function (err) {
+    const retryable = err && (err.isTimeout || err.name === 'TypeError'); // TypeError = เน็ตสะดุด (Failed to fetch)
+    if (retryable && attempt < 1 && API_RETRY_FNS_.indexOf(functionName) !== -1) {
+      return callGasApi_(functionName, args, attempt + 1); // รอบสองมักผ่าน เพราะ Apps Script ตื่นแล้ว
+    }
+    throw err;
   });
 }
+
+// ปลุก Apps Script ล่วงหน้าตั้งแต่เปิดแอป (cold start มักกิน 3-10 วินาที) ให้ตอนกด Login เจอเซิร์ฟเวอร์ที่ตื่นแล้ว
+try { fetch(API_BASE_URL, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(function () {}); } catch (e) { /* ไม่ critical */ }
 
 function createScriptRunProxy_(successHandler, failureHandler) {
   return new Proxy({}, {
