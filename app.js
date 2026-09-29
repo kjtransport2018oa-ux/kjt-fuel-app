@@ -467,7 +467,33 @@ function handlePwaInstallClick_() {
       attendantView = 'menu';
 
       if (currentUser.role === 'Driver') {
-        // คนขับ: ต้องเช็คนโยบายให้ผ่านก่อน ถึงจะเห็นเมนู — โชว์หน้ารอสั้นๆ กันเห็นเมนูก่อนแล้วโดนหน้ากั้นซ้อนทับทีหลัง
+        const cachedSig = getCachedPolicySig_();
+        if (cachedSig) {
+          // เคยยอมรับนโยบายครบทุกข้อไปแล้ว (มีลายเซ็นแคชอยู่ในเครื่อง) — เช็คแบบเบาที่สุดก่อน
+          // (แค่เทียบสตริง ไม่แตะ PolicyConsentLog เลย) ถ้าลายเซ็นตรงกัน = ไม่มีนโยบายเปลี่ยน จบเลย เข้าเมนูทันที
+          // ไม่ต้องโชว์หน้าโหลด เพราะควรเร็วจนไม่ทันสังเกต ถ้าช้าจริงๆ (เน็ตแย่) ค่อยรอ callback ตามปกติ
+          const tokenAtRequest = sessionToken; // จำ token ไว้ ณ ตอนยิง request — เผื่อ logout ไปแล้วระหว่างรอตอบกลับ
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (sessionToken !== tokenAtRequest) return; // logout ไปแล้วระหว่างรอตอบกลับ
+              if (res && res.success && res.signature === cachedSig) {
+                enterAppContinue_(); // จบทันที — ไม่ต้องเช็คทีละหัวข้อซ้ำอีก
+              } else {
+                // มีนโยบายใหม่/แก้ไขเวอร์ชันตั้งแต่ครั้งก่อน (หรือ signature เพี้ยน) — ค่อยเช็คแบบเต็ม
+                document.getElementById('mainContent').innerHTML =
+                  '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังตรวจสอบนโยบาย...</p></div>';
+                checkPolicyGate_();
+              }
+            })
+            .withFailureHandler(function () {
+              if (sessionToken !== tokenAtRequest) return;
+              enterAppContinue_(); // เน็ตหลุด — ปล่อยเข้าไปก่อนเหมือนพฤติกรรมเดิมตอน checkPolicyGate_ ล้มเหลว
+            })
+            .getPolicySignature(sessionToken);
+          return;
+        }
+
+        // ยังไม่เคยยอมรับครบ (หรือเพิ่งเปลี่ยนเครื่อง/ล้าง localStorage) — เช็คแบบเต็มตามปกติ
         document.getElementById('mainContent').innerHTML =
           '<div class="loading-state"><div class="spinner-lg"></div><p>กำลังตรวจสอบนโยบาย...</p></div>';
         checkPolicyGate_();
@@ -475,6 +501,15 @@ function handlePwaInstallClick_() {
       }
 
       enterAppContinue_();
+    }
+
+    /** แคชลายเซ็นนโยบายไว้ใน localStorage ต่อ username (กันเครื่องใช้ร่วมกันหลายคน) — ไม่ใช่ข้อมูลอ่อนไหว แค่สตริงบอกเวอร์ชัน */
+    function policySigCacheKey_() { return 'kjthub_policy_sig_' + (currentUser ? currentUser.username : ''); }
+    function getCachedPolicySig_() {
+      try { return localStorage.getItem(policySigCacheKey_()); } catch (e) { return null; }
+    }
+    function setCachedPolicySig_(sig) {
+      try { localStorage.setItem(policySigCacheKey_(), sig); } catch (e) { /* ignore เช่น private mode */ }
     }
 
     /** ส่วนที่เหลือของการเข้าแอป (render เมนูจริง + งาน background ต่างๆ) — แยกออกมาจาก enterApp()
@@ -715,6 +750,11 @@ function handlePwaInstallClick_() {
             document.getElementById('policyGateModal').classList.add('open');
             return; // รอผู้ใช้กดยอมรับให้ครบแล้วกด "เริ่มปฏิบัติงาน" — closePolicyGate_() จะพาเข้าเมนูต่อเอง
           }
+          if (res && res.success) {
+            // ไม่มีนโยบายค้าง (ยอมรับครบอยู่แล้วจากรอบก่อน) — แคชลายเซ็นไว้เลย เปิดแอปครั้งหน้าจะได้เข้าทางลัดทันที
+            const sig = res.policies.map(function (p) { return p.policyId + ':' + p.version; }).join('|');
+            setCachedPolicySig_(sig);
+          }
           enterAppContinue_(); // ไม่มีนโยบายค้าง — เข้าเมนูต่อได้เลย
         })
         .withFailureHandler(function () {
@@ -806,6 +846,9 @@ function handlePwaInstallClick_() {
     /** ปิดหน้ากั้น — เรียกได้จากปุ่ม "เริ่มปฏิบัติงาน" เท่านั้น (ไม่มีทางปิดด้วยการคลิกฉากหลัง/กดที่อื่น) */
     function closePolicyGate_() {
       document.getElementById('policyGateModal').classList.remove('open');
+      // ยอมรับครบทุกข้อแล้ว — แคชลายเซ็นไว้ในเครื่อง เปิดแอปครั้งหน้าจะได้ข้ามการเช็คแบบเต็ม ไม่ต้องอ่าน PolicyConsentLog ซ้ำอีก
+      const sig = policyGateItems_.map(function (p) { return p.policyId + ':' + p.version; }).join('|');
+      setCachedPolicySig_(sig);
       enterAppContinue_(); // ผ่านนโยบายครบแล้ว — เข้าเมนูจริงตอนนี้
     }
 
