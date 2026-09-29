@@ -12,10 +12,16 @@ let editingUsername = null; // null = creating new user
 // แก้เป็น URL เว็บแอป Apps Script ที่ deploy ไว้ (เหมือนเดิม ไม่เปลี่ยน)
 const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwCfj9OYb3CZQZLxt0bmxA1fIcsPuP_Djz5yTH00kyFORFcqgNjJQsbeZXUOUlkt5l1/exec';
 const API_TIMEOUT_MS_ = 15000; // ถ้าเซิร์ฟเวอร์ไม่ตอบภายใน 15 วิ ถือว่า "ช้าผิดปกติ" ตัดจบไม่ให้ค้างรอไม่มีที่สิ้นสุด
-// คำสั่งที่ "ช้าเป็นปกติ" (ส่งข้อมูลทีละร้อยคน + อัปโหลดไฟล์ขึ้น Drive) ต้องให้เวลามากกว่า 15 วิ
-// ไม่งั้นจะถูกตัดทิ้งกลางคันทั้งที่ฝั่งเซิร์ฟเวอร์กำลังเขียนข้อมูลอยู่
+// คำสั่งที่ "ช้าเป็นปกติ" ต้องให้เวลามากกว่า 15 วิ ไม่งั้นจะถูกตัดทิ้งกลางคันทั้งที่ฝั่งเซิร์ฟเวอร์กำลังเขียนข้อมูลอยู่
+// - previewHealthImport / confirmHealthImport: ส่งข้อมูลทีละร้อยคน + อัปโหลดไฟล์ขึ้น Drive
+// - addFuelScheduleRows / createMaintenanceBooking / updateMaintenanceStatus / submitBreakdownLog: เขียนข้อมูลหลัก
+//   เร็วอยู่แล้ว แต่กันเผื่อไว้อีกชั้นระหว่างที่ backend เพิ่งเปลี่ยนมาคิวแจ้งเตือนแบบ async (ดู PendingPush ใน
+//   MaintenancePush.gs) — ถ้า deploy backend ใหม่ยังไม่ทันหรือมีคิวค้างผิดปกติ จะได้ไม่ตัดจบเร็วเกินไป
 const API_LONG_TIMEOUT_MS_ = 180000;
-const API_LONG_TIMEOUT_FNS_ = ['previewHealthImport', 'confirmHealthImport'];
+const API_LONG_TIMEOUT_FNS_ = [
+  'previewHealthImport', 'confirmHealthImport',
+  'addFuelScheduleRows', 'createMaintenanceBooking', 'updateMaintenanceStatus', 'submitBreakdownLog'
+];
 
 /** fetch พร้อม timeout — กันปัญหา "เซิร์ฟเวอร์ตอบสนองช้า" ที่ทำให้หน้าเว็บหมุนค้างไม่รู้จบ */
 function fetchWithTimeout_(url, options, timeoutMs) {
@@ -414,6 +420,7 @@ function handlePwaInstallClick_() {
 
     function doLogout() {
       if (fuelQrPollTimer_) { clearInterval(fuelQrPollTimer_); fuelQrPollTimer_ = null; }
+      document.removeEventListener('visibilitychange', handleFuelQrVisibilityChange_);
       google.script.run.logoutUser(sessionToken);
       maintRemovePushTokenOnLogout_();
       try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* ignore */ }
@@ -603,6 +610,7 @@ function handlePwaInstallClick_() {
 
     function goDriverView(view) {
       if (fuelQrPollTimer_) { clearInterval(fuelQrPollTimer_); fuelQrPollTimer_ = null; }
+      document.removeEventListener('visibilitychange', handleFuelQrVisibilityChange_);
       driverView = view;
       renderDriverHome();
     }
@@ -618,8 +626,30 @@ function handlePwaInstallClick_() {
 
       fuelQrLastState_ = null; // เข้าหน้านี้ใหม่ทุกครั้ง ให้ render รอบแรกเสมอ
       loadDriverQrStatus_();
+      startFuelQrPolling_();
+      document.addEventListener('visibilitychange', handleFuelQrVisibilityChange_);
+    }
+
+    /** เดินโพลทุก 15 วิ (เดิม 10 วิ) — ลดจำนวน request รวมของทั้งระบบเวลามีคนขับเปิดหน้านี้ค้างไว้พร้อมกันหลายคน
+     *  ซึ่งเป็นส่วนหนึ่งที่ไปแย่งโควตาการรันพร้อมกันของ Apps Script กับ request อื่นๆ (เช่นหัวหน้างานกำลังบันทึกข้อมูล) */
+    const FUEL_QR_POLL_MS_ = 15000;
+
+    function startFuelQrPolling_() {
       if (fuelQrPollTimer_) clearInterval(fuelQrPollTimer_);
-      fuelQrPollTimer_ = setInterval(loadDriverQrStatus_, 10000); // เช็คทุก 10 วิ ว่ามีงานใหม่เข้ามา/งานที่มีอยู่เติมเสร็จหรือยัง
+      fuelQrPollTimer_ = setInterval(loadDriverQrStatus_, FUEL_QR_POLL_MS_);
+    }
+
+    /** หยุดโพลตอนสลับแท็บ/พับแอปไปทำอย่างอื่น (มือถือเปิดค้างไว้เฉยๆ ในกระเป๋าก็ยังยิง request ทุก 10-15 วิ
+     *  ถ้าไม่เช็คจุดนี้ — สิ้นเปลืองโควตาเปล่าๆ) แล้วโพลทันที 1 ครั้ง + เริ่มนับใหม่ตอนกลับมาเปิดหน้าจออีกครั้ง */
+    function handleFuelQrVisibilityChange_() {
+      if (!fuelQrPollTimer_) return; // ออกจากหน้า QR ไปแล้ว (goDriverView เคลียร์ timer ไว้แล้ว) ไม่ต้องทำอะไร
+      if (document.hidden) {
+        clearInterval(fuelQrPollTimer_);
+        fuelQrPollTimer_ = null;
+      } else {
+        loadDriverQrStatus_();
+        startFuelQrPolling_();
+      }
     }
 
     /** ดึงสถานะ QR ล่าสุดจาก backend — มี 3 สถานะ: 'none' (ยังไม่มีงาน), 'consent' (มีงานแต่ยังไม่กดยอมรับข้อตกลง),
