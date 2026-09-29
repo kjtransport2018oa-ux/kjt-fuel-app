@@ -67,7 +67,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-const CACHE_NAME = 'kjt-hub-shell-v21'; // v21: เพิ่มหน้าข้อตกลง/กฎระเบียบ (Terms & Regulations Screen) ก่อนรับ QR Code เติมน้ำมัน — app.js + style.css
+const CACHE_NAME = 'kjt-hub-shell-v22'; // v21: เพิ่มหน้าข้อตกลง/กฎระเบียบ (Terms & Regulations Screen) ก่อนรับ QR Code เติมน้ำมัน — app.js + style.css
 const APP_SHELL = [
   './',
   './index.html',
@@ -103,6 +103,8 @@ self.addEventListener('activate', function (event) {
 self.addEventListener('fetch', function (event) {
   // ปล่อยผ่าน POST (คำขอ API ไปหา Apps Script) ให้วิ่งตรงไปเน็ตเวิร์กเสมอ ไม่แตะ
   if (event.request.method !== 'GET') return;
+  // ไม่แตะคำขอข้ามโดเมน (เช่น ปลุก Apps Script ล่วงหน้า) — แคชเฉพาะไฟล์ของเว็บเราเอง
+  if (new URL(event.request.url).origin !== self.location.origin) return;
 
   event.respondWith(
     // { cache: 'reload' } บังคับให้เบราว์เซอร์ยิงไปเซิร์ฟเวอร์จริงเสมอ ไม่หยิบจาก HTTP cache ของตัวเบราว์เซอร์เอง
