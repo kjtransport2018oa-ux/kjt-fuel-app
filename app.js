@@ -3668,20 +3668,24 @@ function handlePwaInstallClick_() {
       uaStatus:          ['[Urinalysis'],
       ekgStatus:         ['สรุปผลการตรวจ [EKG'],
       xrayStatus:        ['สรุปผลการตรวจ [Chest X-Ray]'],
-      fbs:               ['FBS ในเลือด'],
-      fbsStatus:         ['[FBS In Blood]'],
-      bun:               ['BUN ในเลือด'],
-      bunStatus:         ['[BUN In Blood]'],
-      cre:               ['CRE ในเลือด'],
-      creStatus:         ['[CRE In Blood]'],
-      cholesterol:       ['Cholesterol:CHOL ในเลือด'],
-      cholesterolStatus: ['[Cholesterol:CHOL In Blood]'],
-      triglyceride:      ['Triglyceride:TG ในเลือด'],
-      triglycerideStatus:['[Triglyceride:TG In Blood]'],
-      sgot:              ['SGOT ในเลือด'],
-      sgotStatus:        ['[SGOT In Blood]'],
-      sgpt:              ['SGPT ในเลือด'],
-      sgptStatus:        ['[SGPT In Blood]'],
+      // ค่า/สถานะชีวเคมี 7 ตัวนี้ ใส่ pattern ไว้ "ทั้งแบบเก่าและแบบใหม่" เพราะปี 2569 บริษัทตรวจตัดคำว่า
+      // "ในเลือด" / "In Blood" ออกจาก header (เช่น "FBS ในเลือด" -> "FBS" เฉยๆ) ทำให้ pattern แบบเก่าที่ผูก
+      // คำนี้ไว้เป๊ะๆ หาคอลัมน์ไม่เจอ ค่าตัวเลขเลยตกไปเป็นช่องว่างทั้งแถวตอน import ไฟล์ปี 2569
+      // — ใส่ไว้ 2 แบบพร้อมกันแบบนี้ กันปัญหาเดิมเกิดซ้ำถ้าปีถัดๆ ไปสลับกลับไปกลับมาอีก
+      fbs:               ['FBS ในเลือด', 'ตรวจระดับ FBS'],
+      fbsStatus:         ['[FBS In Blood]', '[FBS]'],
+      bun:               ['BUN ในเลือด', 'ตรวจระดับการทำงานของไต BUN'],
+      bunStatus:         ['[BUN In Blood]', '[BUN]'],
+      cre:               ['CRE ในเลือด', 'ตรวจระดับการทำงานของไต CRE'],
+      creStatus:         ['[CRE In Blood]', '[CRE]'],
+      cholesterol:       ['Cholesterol:CHOL ในเลือด', 'ตรวจระดับไขมัน Cholesterol:CHOL'],
+      cholesterolStatus: ['[Cholesterol:CHOL In Blood]', '[Cholesterol:CHOL]'],
+      triglyceride:      ['Triglyceride:TG ในเลือด', 'ตรวจระดับไขมัน Triglyceride:TG'],
+      triglycerideStatus:['[Triglyceride:TG In Blood]', '[Triglyceride:TG]'],
+      sgot:              ['SGOT ในเลือด', 'ตรวจระดับการทำงานของตับ SGOT'],
+      sgotStatus:        ['[SGOT In Blood]', '[SGOT]'],
+      sgpt:              ['SGPT ในเลือด', 'ตรวจระดับการทำงานของตับ SGPT'],
+      sgptStatus:        ['[SGPT In Blood]', '[SGPT]'],
       drugScreenStatus:  ['Methamphetamine In Urine'],
       hearingStatus:     ['สรุปผลการตรวจ [Audiometry]'],
       lungStatus:        ['สรุปผลการตรวจ [Spirometry]'],
@@ -3741,7 +3745,12 @@ function handlePwaInstallClick_() {
       });
 
       // เตือนถ้าคอลัมน์สำคัญจับคู่ไม่เจอ (ผังไฟล์อาจเปลี่ยนไปจากที่คาดไว้)
-      const criticalMissing = ['firstName', 'lastName', 'bmi'].filter(function (k) { return col[k] === -1; });
+      // เดิมเช็คแค่ firstName/lastName/bmi — เพิ่มค่าตัวเลขทางห้องแล็บทั้งหมดเข้ามาด้วย เพราะนี่คือจุดที่เพิ่งพัง
+      // จริงตอนบริษัทตรวจเปลี่ยนคำใน header (ตัด "ในเลือด" ออก) แล้วไม่มี warning ให้เห็นเลยตอนนั้น
+      const criticalMissing = [
+        'firstName', 'lastName', 'bmi', 'weight', 'height', 'sbp', 'dbp', 'pulse',
+        'hemoglobin', 'wbc', 'fbs', 'bun', 'cre', 'cholesterol', 'triglyceride', 'sgot', 'sgpt'
+      ].filter(function (k) { return col[k] === -1; });
 
       const records = [];
       for (let r = headerRowIdx + 1; r < grid.length; r++) {
